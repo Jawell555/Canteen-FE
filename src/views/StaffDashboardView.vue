@@ -3,6 +3,9 @@ import { ref } from 'vue'
 import OrderQueueCard from '../components/staff/OrderQueueCard.vue'
 import PaymentProofModal from '../components/staff/PaymentProofModal.vue'
 import { useStaffQueue } from '../composables/useStaffQueue'
+import { useAuth } from '../composables/useAuth'
+
+const { isStaff, isAdmin, isAuthenticated } = useAuth()
 
 const {
   menuItems,
@@ -55,6 +58,17 @@ function togglePolling() {
 
 <template>
   <div class="staff-dashboard">
+    <!-- Read-Only Banner for Unauthenticated / Non-Staff Users -->
+    <div v-if="!isAuthenticated || (!isStaff && !isAdmin)" class="staff-auth-banner" style="background: #eff6ff; border: 1.5px solid #bfdbfe; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <span style="font-size: 20px;">ℹ️</span>
+        <span style="color: #1e40af; font-size: 13px; font-weight: 600;">Viewing Kitchen Queue in preview mode. Sign in with kitchen staff credentials to verify payments and advance statuses live.</span>
+      </div>
+      <router-link to="/login" style="background: #2563eb; color: white; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; text-decoration: none;">
+        Sign In as Staff
+      </router-link>
+    </div>
+
     <!-- Operational Header (Touchscreen Friendly) -->
     <header class="staff-header">
       <div class="header-left">

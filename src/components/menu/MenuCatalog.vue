@@ -14,6 +14,10 @@ defineProps({
     type: String,
     default: 'all',
   },
+  loading: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 defineEmits(['select-category', 'customize-item', 'quick-add'])
@@ -37,8 +41,31 @@ defineEmits(['select-category', 'customize-item', 'quick-add'])
       </button>
     </div>
 
-    <!-- Items Grid -->
-    <div class="items-grid">
+    <!-- Skeleton Loading Grid (Matches Picture 1) -->
+    <div v-if="loading" class="items-grid" aria-busy="true" aria-label="Loading menu items">
+      <div v-for="n in 6" :key="'skeleton-' + n" class="item-card skeleton-card">
+        <div class="skeleton-img-box shimmer"></div>
+        <div class="item-details">
+          <div class="skeleton-line skeleton-title shimmer"></div>
+          <div class="skeleton-line skeleton-desc-1 shimmer"></div>
+          <div class="skeleton-line skeleton-desc-2 shimmer"></div>
+          <div class="item-footer">
+            <div class="skeleton-line skeleton-price shimmer"></div>
+            <div class="skeleton-line skeleton-btn shimmer"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Empty State -->
+    <div v-else-if="items.length === 0" class="empty-menu-card">
+      <span class="empty-icon" aria-hidden="true">🍽️</span>
+      <h3 class="empty-title">No items found</h3>
+      <p class="empty-sub">There are no dishes in this category right now. Please choose another tab.</p>
+    </div>
+
+    <!-- Live Items Grid (From Database) -->
+    <div v-else class="items-grid">
       <article
         v-for="item in items"
         :key="item.id"
@@ -137,7 +164,7 @@ defineEmits(['select-category', 'customize-item', 'quick-add'])
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
-.item-card:hover:not(.sold-out) {
+.item-card:hover:not(.sold-out):not(.skeleton-card) {
   transform: translateY(-2px);
   box-shadow: var(--shadow-card);
 }
@@ -221,5 +248,135 @@ defineEmits(['select-category', 'customize-item', 'quick-add'])
 .add-btn:disabled {
   background-color: var(--color-border-strong);
   cursor: not-allowed;
+}
+
+/* Skeleton Loading (Standard High-Contrast WCAG Compliant) */
+.skeleton-card {
+  cursor: default;
+  pointer-events: none;
+  background-color: #ffffff;
+  border: 1px solid #cbd5e1;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.skeleton-img-box {
+  height: 180px;
+  background: linear-gradient(
+    90deg,
+    #cbd5e1 0%,
+    #e2e8f0 35%,
+    #f1f5f9 50%,
+    #e2e8f0 65%,
+    #cbd5e1 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-anim 1.6s ease-in-out infinite;
+}
+
+.skeleton-line {
+  border-radius: var(--radius-sm, 4px);
+  background: linear-gradient(
+    90deg,
+    #cbd5e1 0%,
+    #e2e8f0 35%,
+    #f1f5f9 50%,
+    #e2e8f0 65%,
+    #cbd5e1 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer-anim 1.6s ease-in-out infinite;
+}
+
+.skeleton-title {
+  height: 20px;
+  width: 58%;
+  margin-bottom: 12px;
+  background: linear-gradient(
+    90deg,
+    #94a3b8 0%,
+    #cbd5e1 35%,
+    #e2e8f0 50%,
+    #cbd5e1 65%,
+    #94a3b8 100%
+  );
+  background-size: 200% 100%;
+}
+
+.skeleton-desc-1 {
+  height: 13px;
+  width: 92%;
+  margin-bottom: 8px;
+}
+
+.skeleton-desc-2 {
+  height: 13px;
+  width: 72%;
+  margin-bottom: 20px;
+}
+
+.skeleton-price {
+  height: 24px;
+  width: 75px;
+  background: linear-gradient(
+    90deg,
+    #94a3b8 0%,
+    #cbd5e1 35%,
+    #e2e8f0 50%,
+    #cbd5e1 65%,
+    #94a3b8 100%
+  );
+  background-size: 200% 100%;
+}
+
+.skeleton-btn {
+  height: 40px;
+  width: 85px;
+  border-radius: var(--radius-md, 6px);
+  background: linear-gradient(
+    90deg,
+    #94a3b8 0%,
+    #cbd5e1 35%,
+    #e2e8f0 50%,
+    #cbd5e1 65%,
+    #94a3b8 100%
+  );
+  background-size: 200% 100%;
+}
+
+@keyframes shimmer-anim {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+/* Empty State */
+.empty-menu-card {
+  text-align: center;
+  padding: var(--space-12) var(--space-4);
+  background-color: var(--color-bg-surface);
+  border-radius: var(--radius-xl);
+  border: 1px dashed var(--color-border-default);
+  margin: var(--space-4) 0;
+}
+
+.empty-icon {
+  font-size: 48px;
+  display: block;
+  margin-bottom: var(--space-3);
+}
+
+.empty-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-1);
+}
+
+.empty-sub {
+  font-size: 14px;
+  color: var(--color-text-secondary);
 }
 </style>

@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import MenuCatalog from '../components/menu/MenuCatalog.vue'
 import ItemCustomizerModal from '../components/menu/ItemCustomizerModal.vue'
 import { useCart } from '../composables/useCart'
+import { api } from '../services/api'
 
 const router = useRouter()
 const { addItem, itemCount, formattedSubtotal } = useCart()
@@ -11,56 +12,74 @@ const { addItem, itemCount, formattedSubtotal } = useCart()
 const activeCategory = ref('all')
 const selectedItemForModal = ref(null)
 const isCustomizerOpen = ref(false)
+const isLoading = ref(true)
 
-const categories = [
+// Categories initialized dynamically from database
+const categories = ref([
   { id: 'all', name: 'All Items' },
   { id: 'meals', name: 'Meals' },
   { id: 'snacks', name: 'Snacks' },
   { id: 'drinks', name: 'Drinks' },
-]
-
-const menuItems = ref([
-  {
-    id: 101,
-    name: 'Chicken Adobo with Rice',
-    desc: 'Classic Filipino savory chicken braised in vinegar and soy sauce with garlic.',
-    price: 85,
-    emoji: '🍛',
-    stock: 24,
-    category: 'meals',
-    isSoldOut: false,
-  },
-  {
-    id: 102,
-    name: 'Pork Sinigang with Rice',
-    desc: 'Tamarind-soured broth with tender pork ribs, water spinach, and radish.',
-    price: 95,
-    emoji: '🍲',
-    stock: 15,
-    category: 'meals',
-    isSoldOut: false,
-  },
-  {
-    id: 103,
-    name: 'Toasted Ham & Cheese',
-    desc: 'Golden crisp bread with smoked ham and melted cheddar cheese.',
-    price: 45,
-    emoji: '🥪',
-    stock: 12,
-    category: 'snacks',
-    isSoldOut: false,
-  },
-  {
-    id: 104,
-    name: 'Iced Calamansi Juice',
-    desc: 'Chilled native citrus juice freshly squeezed with pure honey.',
-    price: 25,
-    emoji: '🧃',
-    stock: 0,
-    category: 'drinks',
-    isSoldOut: true,
-  },
 ])
+
+// Zero hardcoded items — dynamically populated exclusively from Neon database
+const menuItems = ref([])
+
+function getItemEmoji(item) {
+  if (item.emoji && item.emoji !== '🍽️') return item.emoji
+  const name = (item.name || '').toLowerCase()
+  if (name.includes('adobo')) return '🍛'
+  if (name.includes('sinigang')) return '🍲'
+  if (name.includes('inasal')) return '🍗'
+  if (name.includes('tapsilog')) return '🍳'
+  if (name.includes('shanghai') || name.includes('lumpia')) return '🥢'
+  if (name.includes('turon')) return '🍌'
+  if (name.includes('ham') || name.includes('cheese') || name.includes('sandwich')) return '🥪'
+  if (name.includes('calamansi') || name.includes('juice')) return '🧃'
+  if (name.includes('gulaman') || name.includes('sago')) return '🥤'
+  return '🍽️'
+}
+
+async function fetchMenuData() {
+  isLoading.value = true
+  try {
+    const [catRes, itemRes] = await Promise.all([
+      api.get('/menu/categories').catch(() => null),
+      api.get('/menu/items').catch(() => null),
+    ])
+
+    if (catRes?.data?.categories && catRes.data.categories.length > 0) {
+      categories.value = [
+        { id: 'all', name: 'All Items' },
+        ...catRes.data.categories.map((c) => ({
+          id: c.slug,
+          name: c.name,
+        })),
+      ]
+    }
+
+    if (itemRes?.data?.items) {
+      menuItems.value = itemRes.data.items.map((item) => ({
+        id: item.id,
+        name: item.name,
+        desc: item.desc || item.description || '',
+        price: Number(item.price),
+        emoji: getItemEmoji(item),
+        stock: item.stock ?? item.current_stock ?? 0,
+        category: item.category || 'meals',
+        isSoldOut: Boolean(item.is_sold_out || item.isSoldOut),
+      }))
+    }
+  } catch (err) {
+    console.error('Failed to load menu data from database:', err)
+  } finally {
+    isLoading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchMenuData()
+})
 
 const filteredItems = computed(() => {
   if (activeCategory.value === 'all') return menuItems.value
@@ -88,39 +107,43 @@ function goToCheckout() {
 
 <template>
   <div class="menu-view">
-    <header class="menu-header">
-      <h1 class="page-title">Today's Menu</h1>
-      <p class="page-subtitle">Select fresh canteen meals, snacks, and drinks</p>
-    </header>
+    <div class="menu-container">
+      <header class="menu-header">
+        <h1 class="page-title">Today's Menu</h1>
+        <p class="page-subtitle">Select fresh canteen meals, snacks, and drinks</p>
+      </header>
 
-    <!-- Menu Catalog Component -->
-    <MenuCatalog
-      :categories="categories"
-      :items="filteredItems"
-      :active-category="activeCategory"
-      @select-category="activeCategory = $event"
-      @customize-item="handleOpenCustomizer"
-    />
+      <!-- Menu Catalog Component with Skeleton Loader -->
+      <MenuCatalog
+        :categories="categories"
+        :items="filteredItems"
+        :active-category="activeCategory"
+        :loading="isLoading"
+        @select-category="activeCategory = $event"
+        @customize-item="handleOpenCustomizer"
+      />
 
-    <!-- Item Customizer Modal -->
-    <ItemCustomizerModal
-      :is-open="isCustomizerOpen"
-      :item="selectedItemForModal"
-      @close="handleCloseCustomizer"
-      @add-to-cart="handleAddToCartFromModal"
-    />
+      <!-- Item Customizer Modal -->
+      <ItemCustomizerModal
+        :is-open="isCustomizerOpen"
+        :item="selectedItemForModal"
+        @close="handleCloseCustomizer"
+        @add-to-cart="handleAddToCartFromModal"
+      />
+    </div>
 
-    <!-- Floating Sticky Cart Pill (Experience mode) -->
+    <!-- Sticky Bottom Cart Summary Bar with ample clear space -->
     <Transition name="slide-up">
-      <aside v-if="itemCount > 0" class="floating-cart-pill" aria-label="Cart Quick Summary">
-        <div class="cart-info">
-          <span class="cart-count tabular-nums">{{ itemCount }} {{ itemCount === 1 ? 'item' : 'items' }}</span>
-          <span class="cart-divider">•</span>
-          <span class="cart-total tabular-nums">{{ formattedSubtotal }}</span>
+      <aside v-if="itemCount > 0" class="floating-cart-bar" aria-label="Order summary bar">
+        <div class="cart-bar-content">
+          <div class="cart-bar-info">
+            <span class="cart-bar-count">{{ itemCount }} {{ itemCount === 1 ? 'ITEM' : 'ITEMS' }}</span>
+            <span class="cart-bar-total">{{ formattedSubtotal }}</span>
+          </div>
+          <button type="button" class="checkout-btn" @click="goToCheckout">
+            Checkout →
+          </button>
         </div>
-        <button type="button" class="checkout-btn" @click="goToCheckout">
-          Checkout →
-        </button>
       </aside>
     </Transition>
   </div>
@@ -128,10 +151,14 @@ function goToCheckout() {
 
 <style scoped>
 .menu-view {
+  min-height: calc(100vh - 120px);
+  padding-bottom: 140px; /* Generous bottom padding so floating cart bar NEVER overlaps cards */
+}
+
+.menu-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: var(--space-6) var(--space-4) calc(var(--space-12) + 60px);
-  position: relative;
+  padding: var(--space-6) var(--space-4) 0 var(--space-4);
 }
 
 .menu-header {
@@ -141,77 +168,86 @@ function goToCheckout() {
 .page-title {
   font-size: 28px;
   font-weight: 800;
-  color: var(--color-text-primary);
   letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+  margin-bottom: var(--space-1);
 }
 
 .page-subtitle {
   font-size: 15px;
   color: var(--color-text-secondary);
-  margin-top: 4px;
 }
 
-/* Floating Sticky Cart Pill */
-.floating-cart-pill {
+/* Floating Bottom Cart Bar */
+.floating-cart-bar {
   position: fixed;
-  bottom: var(--space-6);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 40;
-  background-color: var(--color-text-primary);
-  color: var(--color-text-inverse);
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background-color: var(--color-bg-surface);
+  border-top: 1px solid var(--color-border-subtle);
+  box-shadow: 0 -6px 24px rgba(0, 0, 0, 0.1);
+  padding: var(--space-3) var(--space-6);
+  z-index: 50;
+  backdrop-filter: blur(8px);
+}
+
+.cart-bar-content {
+  max-width: 1200px;
+  margin: 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-4);
-  padding: 10px 18px;
-  border-radius: var(--radius-full);
-  box-shadow: var(--shadow-elevated);
-  width: calc(100% - 32px);
-  max-width: 480px;
 }
 
-.cart-info {
+.cart-bar-info {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  flex-direction: column;
 }
 
-.cart-divider {
-  opacity: 0.4;
+.cart-bar-count {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+  letter-spacing: 0.06em;
 }
 
-.cart-total {
-  color: #FDBA74;
-  font-weight: 800;
+.cart-bar-total {
+  font-size: 22px;
+  font-weight: 900;
+  color: var(--color-primary-base);
+  line-height: 1.2;
 }
 
 .checkout-btn {
   background-color: var(--color-primary-base);
-  color: var(--color-text-inverse);
-  border: none;
-  font-weight: 700;
-  font-size: 14px;
-  padding: 8px 16px;
+  color: var(--color-primary-contrast);
+  padding: 12px 28px;
   border-radius: var(--radius-full);
+  font-weight: 700;
+  font-size: 15px;
+  border: none;
   cursor: pointer;
-  transition: background-color 0.15s ease;
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  min-height: 44px;
 }
 
 .checkout-btn:hover {
   background-color: var(--color-primary-hover);
+  transform: translateY(-1px);
 }
 
+/* Transition */
 .slide-up-enter-active,
 .slide-up-leave-active {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.25s ease-out, opacity 0.25s ease-out;
 }
 
 .slide-up-enter-from,
 .slide-up-leave-to {
+  transform: translateY(100%);
   opacity: 0;
-  transform: translate(-50%, 20px);
 }
 </style>

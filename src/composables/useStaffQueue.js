@@ -60,6 +60,19 @@ const mockInitialOrders = [
   },
 ]
 
+const ITEM_EMOJIS = {
+  'Chicken Adobo with Rice': '🍗',
+  'Chicken Inasal with Rice': '🍗',
+  'Pork Sinigang with Rice': '🍲',
+  'Toasted Ham & Cheese': '🥪',
+  'Lumpiang Shanghai (6 pcs)': '🥢',
+  'Crispy Turon (2 pcs)': '🍌',
+  'Tapsilog': '🍳',
+  'Chilled Calamansi Juice': '🧃',
+  'Iced Calamansi Juice': '🧃',
+  'Sago\'t Gulaman': '🧋',
+}
+
 // Mock menu items for rush hour Sold-Out toggling
 const mockMenuItems = [
   { id: 101, name: 'Chicken Adobo with Rice', emoji: '🍗', stock: 24, isSoldOut: false },
@@ -84,6 +97,27 @@ export function useStaffQueue() {
     preparing: preparingOrders.value.length,
     ready: readyOrders.value.length,
   }))
+
+  /**
+   * Fetch menu items for rush hour Sold-Out toggle
+   */
+  async function fetchMenuItems() {
+    try {
+      const response = await api.get('/menu/items')
+      const items = response.data?.items || []
+      if (items.length > 0) {
+        menuItems.value = items.map((i) => ({
+          id: i.id,
+          name: i.name,
+          emoji: ITEM_EMOJIS[i.name] || '🍽️',
+          stock: i.current_stock ?? i.daily_stock_limit ?? 50,
+          isSoldOut: Boolean(i.is_sold_out || i.current_stock <= 0),
+        }))
+      }
+    } catch {
+      // Gracefully continue with mock items if backend offline
+    }
+  }
 
   /**
    * Fetch active queue from backend (or keep mock updated)
@@ -172,6 +206,18 @@ export function useStaffQueue() {
     }
   }
 
+  /**
+   * Cancel order with reason and release inventory hold
+   */
+  async function cancelOrder(orderUuid, reason = 'Cancelled by kitchen staff') {
+    orders.value = orders.value.filter((o) => o.order_uuid !== orderUuid)
+    try {
+      await api.post(`/staff/orders/${orderUuid}/cancel`, { reason })
+    } catch {
+      // Optimistic local update
+    }
+  }
+
   function startPolling(intervalMs = 5000) {
     stopPolling()
     isPolling.value = true
@@ -187,6 +233,7 @@ export function useStaffQueue() {
   }
 
   onMounted(() => {
+    fetchMenuItems()
     startPolling(5000)
   })
 
@@ -207,6 +254,7 @@ export function useStaffQueue() {
     advanceOrderStatus,
     confirmPayment,
     rejectPayment,
+    cancelOrder,
     toggleSoldOut,
     startPolling,
     stopPolling,

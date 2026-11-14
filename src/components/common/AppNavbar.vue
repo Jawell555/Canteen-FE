@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { useAuth } from '../../composables/useAuth'
 
 defineProps({
   cartCount: {
@@ -13,6 +14,7 @@ defineEmits(['toggle-cart'])
 
 const router = useRouter()
 const currentRouteName = computed(() => router.currentRoute.value.name)
+const { user, isAuthenticated, isStaff, isAdmin, logout } = useAuth()
 
 const isMobileDrawerOpen = ref(false)
 
@@ -22,6 +24,12 @@ function toggleMobileDrawer() {
 
 function closeMobileDrawer() {
   isMobileDrawerOpen.value = false
+}
+
+async function handleLogout() {
+  closeMobileDrawer()
+  await logout()
+  router.push('/login')
 }
 
 // Automatically close drawer when route changes
@@ -95,6 +103,7 @@ watch(isMobileDrawerOpen, (isOpen) => {
           Profile
         </router-link>
         <router-link
+          v-if="isStaff || isAdmin"
           to="/staff"
           class="nav-link staff-link"
           :class="{ active: currentRouteName === 'staff' }"
@@ -102,6 +111,7 @@ watch(isMobileDrawerOpen, (isOpen) => {
           Staff Queue
         </router-link>
         <router-link
+          v-if="isAdmin"
           to="/admin"
           class="nav-link staff-link"
           :class="{ active: currentRouteName === 'admin' }"
@@ -111,6 +121,29 @@ watch(isMobileDrawerOpen, (isOpen) => {
       </nav>
 
       <div class="navbar-actions">
+        <!-- Authenticated Profile / Sign In Pill -->
+        <div v-if="isAuthenticated" class="auth-box">
+          <span class="user-chip" :title="user?.email">
+            <span class="user-role-badge" :class="user?.role">{{ user?.role }}</span>
+            <span class="user-name-text">{{ user?.name?.split(' ')[0] }}</span>
+          </span>
+          <button
+            type="button"
+            class="logout-btn"
+            title="Sign out of Canteena"
+            @click="handleLogout"
+          >
+            Logout
+          </button>
+        </div>
+        <router-link
+          v-else
+          to="/login"
+          class="login-btn"
+        >
+          Sign In
+        </router-link>
+
         <button
           type="button"
           class="cart-btn"
@@ -156,6 +189,23 @@ watch(isMobileDrawerOpen, (isOpen) => {
             </header>
 
             <div class="drawer-content">
+              <!-- Mobile Auth Status Banner -->
+              <div v-if="isAuthenticated" class="drawer-user-info">
+                <span class="drawer-avatar">👤</span>
+                <div class="drawer-user-meta">
+                  <span class="drawer-user-name">{{ user?.name }}</span>
+                  <span class="drawer-user-email">{{ user?.email }}</span>
+                </div>
+                <button type="button" class="drawer-logout-btn" @click="handleLogout">
+                  Logout
+                </button>
+              </div>
+              <div v-else class="drawer-signin-banner">
+                <router-link to="/login" class="drawer-signin-btn" @click="closeMobileDrawer">
+                  🔑 Sign In to Canteena
+                </router-link>
+              </div>
+
               <span class="drawer-section-label">Order & Account</span>
               <nav class="drawer-nav" aria-label="Mobile Main Navigation">
                 <router-link
@@ -184,27 +234,29 @@ watch(isMobileDrawerOpen, (isOpen) => {
                 </router-link>
               </nav>
 
-              <div class="drawer-divider"></div>
-
-              <span class="drawer-section-label">Canteen Operations</span>
-              <nav class="drawer-nav" aria-label="Mobile Staff Navigation">
-                <router-link
-                  to="/staff"
-                  class="drawer-nav-item staff-item"
-                  :class="{ active: currentRouteName === 'staff' }"
-                >
-                  <span class="nav-icon" aria-hidden="true">👨‍🍳</span>
-                  <span>Staff Kitchen Queue</span>
-                </router-link>
-                <router-link
-                  to="/admin"
-                  class="drawer-nav-item staff-item"
-                  :class="{ active: currentRouteName === 'admin' }"
-                >
-                  <span class="nav-icon" aria-hidden="true">⚙️</span>
-                  <span>Admin Portal</span>
-                </router-link>
-              </nav>
+              <template v-if="isStaff || isAdmin">
+                <div class="drawer-divider"></div>
+                <span class="drawer-section-label">Canteen Operations</span>
+                <nav class="drawer-nav" aria-label="Mobile Staff Navigation">
+                  <router-link
+                    to="/staff"
+                    class="drawer-nav-item staff-item"
+                    :class="{ active: currentRouteName === 'staff' }"
+                  >
+                    <span class="nav-icon" aria-hidden="true">👨‍🍳</span>
+                    <span>Staff Kitchen Queue</span>
+                  </router-link>
+                  <router-link
+                    v-if="isAdmin"
+                    to="/admin"
+                    class="drawer-nav-item staff-item"
+                    :class="{ active: currentRouteName === 'admin' }"
+                  >
+                    <span class="nav-icon" aria-hidden="true">⚙️</span>
+                    <span>Admin Portal</span>
+                  </router-link>
+                </nav>
+              </template>
             </div>
 
             <footer class="drawer-footer">
@@ -543,6 +595,163 @@ watch(isMobileDrawerOpen, (isOpen) => {
   transform: translateX(-100%);
 }
 
+/* Auth in Navbar */
+.auth-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.user-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--color-bg-subtle);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-full);
+  padding: 4px 10px 4px 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.user-role-badge {
+  text-transform: uppercase;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.5px;
+}
+
+.user-role-badge.admin {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.user-role-badge.staff {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.user-role-badge.customer {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.user-name-text {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.logout-btn {
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  color: var(--color-text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  min-height: 36px;
+}
+
+.logout-btn:hover {
+  background-color: #fee2e2;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.login-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: transparent;
+  border: 1.5px solid var(--color-primary-base);
+  color: var(--color-primary-base);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 14px;
+  padding: 6px 14px;
+  border-radius: var(--radius-full);
+  min-height: 38px;
+  transition: all 0.15s ease;
+}
+
+.login-btn:hover {
+  background-color: var(--color-primary-subtle);
+  color: var(--color-primary-hover);
+}
+
+.drawer-user-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  margin-bottom: var(--space-3);
+}
+
+.drawer-avatar {
+  font-size: 20px;
+}
+
+.drawer-user-meta {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drawer-user-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawer-user-email {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawer-logout-btn {
+  background: transparent;
+  border: 1px solid var(--color-border-default);
+  color: #b91c1c;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.drawer-signin-banner {
+  margin-bottom: var(--space-3);
+}
+
+.drawer-signin-btn {
+  display: block;
+  text-align: center;
+  background-color: var(--color-primary-base);
+  color: white;
+  text-decoration: none;
+  font-weight: 700;
+  font-size: 14px;
+  padding: 10px;
+  border-radius: var(--radius-md);
+}
+
 /* Responsive Media Queries */
 @media (max-width: 640px) {
   .hamburger-btn {
@@ -552,6 +761,12 @@ watch(isMobileDrawerOpen, (isOpen) => {
     display: none;
   }
   .cart-label {
+    display: none;
+  }
+  .auth-box {
+    display: none;
+  }
+  .login-btn {
     display: none;
   }
 }

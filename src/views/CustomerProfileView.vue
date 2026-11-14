@@ -1,11 +1,12 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
 import BaseBadge from '../components/common/BaseBadge.vue'
 import FeedbackModal from '../components/orders/FeedbackModal.vue'
 import { useCart } from '../composables/useCart'
 import { useAuth } from '../composables/useAuth'
+import { api } from '../services/api'
 
 const router = useRouter()
 const { addItem } = useCart()
@@ -26,27 +27,14 @@ const pastOrders = ref([
     payment_method: 'GCash',
     has_feedback: false,
     items: [
-      { id: 101, name: 'Chicken Adobo with Rice', price: 85, quantity: 1, custom_notes: 'Penge sabaw' },
-    ],
-  },
-  {
-    order_uuid: 'b12ac34d-1111-2222-3333-444455556666',
-    queue_number: '#019',
-    date: 'Nov 12, 2026 • 11:45 AM',
-    status: 'completed',
-    total: 140.0,
-    payment_method: 'Cash at Counter',
-    has_feedback: true,
-    items: [
-      { id: 102, name: 'Pork Sinigang with Rice', price: 95, quantity: 1, custom_notes: '' },
-      { id: 103, name: 'Toasted Ham & Cheese', price: 45, quantity: 1, custom_notes: '' },
+      { id: 1, name: 'Chicken Adobo with Rice', price: 85, quantity: 1, custom_notes: 'Penge sabaw' },
     ],
   },
 ])
 
 const favoriteItems = ref([
   {
-    id: 101,
+    id: 1,
     name: 'Chicken Adobo with Rice',
     emoji: '🍛',
     price: 85.0,
@@ -54,14 +42,42 @@ const favoriteItems = ref([
     desc: 'Classic savory chicken braised in vinegar and soy sauce.',
   },
   {
-    id: 104,
-    name: 'Iced Calamansi Juice',
+    id: 8,
+    name: 'Chilled Calamansi Juice',
     emoji: '🧃',
     price: 25.0,
     category: 'Drinks',
-    desc: 'Chilled native citrus juice freshly squeezed with honey.',
+    desc: 'Native citrus juice freshly squeezed and chilled with honey.',
   },
 ])
+
+onMounted(async () => {
+  try {
+    const savedHistory = JSON.parse(localStorage.getItem('canteena_order_history') || '[]')
+    if (savedHistory.length > 0) {
+      pastOrders.value = savedHistory
+    }
+  } catch {
+    // fallback
+  }
+
+  try {
+    const res = await api.get('/menu/items')
+    const items = res.data?.items || []
+    if (items.length > 0) {
+      favoriteItems.value = items.slice(0, 4).map((it) => ({
+        id: it.id,
+        name: it.name,
+        emoji: it.emoji || '🍽️',
+        price: Number(it.price),
+        category: it.category_name || it.category || 'Meals',
+        desc: it.desc || it.description || '',
+      }))
+    }
+  } catch {
+    // fallback
+  }
+})
 
 function handleReorder(order) {
   order.items.forEach((item) => {

@@ -1,42 +1,112 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import BaseBadge from '../components/common/BaseBadge.vue'
 import BaseAlert from '../components/common/BaseAlert.vue'
 import BaseButton from '../components/common/BaseButton.vue'
 import ReceiptView from '../components/orders/ReceiptView.vue'
 import { useCart } from '../composables/useCart'
+import { api } from '../services/api'
 
 const route = useRoute()
 const router = useRouter()
 const { formattedHoldTime, isHoldActive } = useCart()
 
-const orderId = route.params.id || '42'
+const activeOrderId = ref(route.params.id || localStorage.getItem('canteena_last_order') || '')
+const isLoading = ref(false)
+let pollTimer = null
 
-// Mock order state (will connect to GET /orders/:id in backend integration)
-const order = ref({
-  id: orderId,
-  queueNumber: '#042',
-  status: 'preparing', // pending, preparing, ready, completed
-  customerName: 'Juan Dela Cruz',
-  createdAt: 'Nov 13, 2026 • 12:15 PM',
-  paymentMethod: 'gcash',
-  referenceNumber: '902148192031',
-  items: [
-    {
-      name: 'Chicken Adobo with Rice',
-      price: 85,
-      quantity: 1,
-      custom_notes: 'Penge sabaw sa hiwalay na cup',
-    },
-  ],
-  total: 85,
+// Order state (connected to GET /orders/:id)
+const order = ref(null)
+
+async function fetchOrderDetails() {
+  const currentId = activeOrderId.value
+  if (!currentId) return
+
+  try {
+    const res = await api.get(`/orders/${currentId}`)
+    const d = res.data?.order || res.data
+    if (d) {
+      order.value = {
+        id: d.uuid || d.id,
+        queueNumber:
+          res.data?.queue_number ||
+          d.formatted_queue_number ||
+          `#${String(d.daily_queue_number || 1).padStart(3, '0')}`,
+        status: d.status || 'pending',
+        customerName: d.customer_name || 'Customer',
+        createdAt: d.created_at
+          ? new Date(d.created_at).toLocaleString([], {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })
+          : new Date().toLocaleDateString(),
+        paymentMethod: d.payment_record?.method || d.payment?.method || 'gcash',
+        referenceNumber:
+          d.payment_record?.reference_number || d.payment?.reference_number || '',
+        items: (d.order_items || d.items || []).map((it) => ({
+          name: it.item_name || it.menu_item?.name || 'Item',
+          price: Number(it.unit_price || 0),
+          quantity: Number(it.quantity || 1),
+          custom_notes: it.custom_notes || '',
+        })),
+        total: Number(d.total_amount || 0),
+      }
+
+      if (['completed', 'cancelled'].includes(order.value.status)) {
+        stopPolling()
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching order details:', err)
+  }
+}
+
+function startPolling() {
+  stopPolling()
+  pollTimer = setInterval(fetchOrderDetails, 4000)
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer)
+    pollTimer = null
+  }
+}
+
+onMounted(async () => {
+  isLoading.value = true
+  await fetchOrderDetails()
+  isLoading.value = false
+  if (order.value && !['completed', 'cancelled'].includes(order.value.status)) {
+    startPolling()
+  }
+})
+
+onUnmounted(() => {
+  stopPolling()
 })
 </script>
 
 <template>
   <div class="status-view">
-    <div class="status-card">
+    <!-- Empty Tracking State -->
+    <div v-if="!activeOrderId || (!order && !isLoading)" class="status-card text-center empty-state" style="text-align: center; padding: 48px 24px;">
+      <span class="empty-icon" style="font-size: 44px; display: block; margin-bottom: 12px;" aria-hidden="true">📋</span>
+      <h2 style="font-size: 20px; font-weight: 800; margin: 0 0 8px; color: var(--color-text-primary);">No Active Order to Track</h2>
+      <p style="font-size: 14px; color: var(--color-text-secondary); max-width: 420px; margin: 0 auto 24px; line-height: 1.5;">
+        You don't have an active meal order in progress. Browse today's canteen specials to place an order and track its real-time kitchen preparation!
+      </p>
+      <BaseButton variant="primary" size="md" @click="router.push('/')">
+        Browse Today's Menu
+      </BaseButton>
+    </div>
+
+    <!-- Active Order Card -->
+    <div v-else-if="order" class="status-card">
       <!-- Hold alert if order is pending payment -->
       <BaseAlert
         v-if="order.status === 'pending' && isHoldActive"

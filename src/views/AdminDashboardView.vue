@@ -1,10 +1,14 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { api } from '../services/api'
+import { useAuth } from '../composables/useAuth'
 import AdminSalesReport from '../components/admin/AdminSalesReport.vue'
 import AdminMenuManager from '../components/admin/AdminMenuManager.vue'
 import BaseButton from '../components/common/BaseButton.vue'
 import BaseBadge from '../components/common/BaseBadge.vue'
 import BaseModal from '../components/common/BaseModal.vue'
+
+const { isAdmin, isAuthenticated } = useAuth()
 
 const activeTab = ref('reports')
 
@@ -19,31 +23,6 @@ const isStaffModalOpen = ref(false)
 const newStaffName = ref('')
 const newStaffEmail = ref('')
 const newStaffPassword = ref('')
-
-function openCreateStaffModal() {
-  newStaffName.value = ''
-  newStaffEmail.value = ''
-  newStaffPassword.value = ''
-  isStaffModalOpen.value = true
-}
-
-function handleSaveStaff() {
-  if (!newStaffName.value.trim() || !newStaffEmail.value.trim()) return
-
-  staffList.value.push({
-    id: Date.now(),
-    name: newStaffName.value.trim(),
-    email: newStaffEmail.value.trim(),
-    role: 'staff',
-    is_active: true,
-  })
-
-  isStaffModalOpen.value = false
-}
-
-function toggleStaffStatus(staff) {
-  staff.is_active = !staff.is_active
-}
 
 // Mock Audit Logs matching admin.contract.md
 const auditLogs = ref([
@@ -75,10 +54,92 @@ const auditLogs = ref([
     created_at: 'Nov 13, 2026 • 11:15 AM',
   },
 ])
+
+async function fetchStaffAndLogs() {
+  try {
+    const staffRes = await api.get('/admin/staff')
+    if (staffRes.data?.staff && staffRes.data.staff.length > 0) {
+      staffList.value = staffRes.data.staff
+    }
+  } catch {
+    // Keep initial fallback
+  }
+
+  try {
+    const logsRes = await api.get('/admin/audit-logs')
+    if (logsRes.data?.logs && logsRes.data.logs.length > 0) {
+      auditLogs.value = logsRes.data.logs
+    }
+  } catch {
+    // Keep initial fallback
+  }
+}
+
+onMounted(() => {
+  fetchStaffAndLogs()
+})
+
+function openCreateStaffModal() {
+  newStaffName.value = ''
+  newStaffEmail.value = ''
+  newStaffPassword.value = ''
+  isStaffModalOpen.value = true
+}
+
+async function handleSaveStaff() {
+  if (!newStaffName.value.trim() || !newStaffEmail.value.trim()) return
+
+  const payload = {
+    name: newStaffName.value.trim(),
+    email: newStaffEmail.value.trim(),
+    password: newStaffPassword.value.trim() || 'password123',
+    role: 'staff',
+  }
+
+  try {
+    const res = await api.post('/admin/staff', payload)
+    if (res.data?.id) {
+      staffList.value.push(res.data)
+    }
+  } catch {
+    staffList.value.push({
+      id: Date.now(),
+      name: payload.name,
+      email: payload.email,
+      role: 'staff',
+      is_active: true,
+    })
+  }
+
+  isStaffModalOpen.value = false
+}
+
+async function toggleStaffStatus(staff) {
+  staff.is_active = !staff.is_active
+  try {
+    await api.patch(`/admin/staff/${staff.id}/toggle-active`)
+  } catch {
+    // Keep optimistic state
+  }
+}
 </script>
 
 <template>
   <div class="admin-dashboard">
+    <!-- Read-Only Banner for Unauthenticated / Non-Admin Users -->
+    <div v-if="!isAuthenticated || !isAdmin" class="admin-auth-guard" style="background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <span style="font-size: 24px;">🔒</span>
+        <div>
+          <strong style="color: #92400e; font-size: 14px; display: block;">Administrator Access Required</strong>
+          <span style="color: #b45309; font-size: 13px;">You are currently previewing in read-only mode. Sign in as an administrator to save mutations directly to Neon PostgreSQL.</span>
+        </div>
+      </div>
+      <router-link to="/login" style="background: #b45309; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 700; text-decoration: none; font-size: 13px;">
+        Sign In as Admin
+      </router-link>
+    </div>
+
     <!-- Top Header -->
     <header class="admin-header">
       <div>
