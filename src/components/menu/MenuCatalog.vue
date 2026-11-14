@@ -18,9 +18,13 @@ defineProps({
     type: Boolean,
     default: false,
   },
+  isLoggedIn: {
+    type: Boolean,
+    default: false,
+  },
 })
 
-defineEmits(['select-category', 'customize-item', 'quick-add'])
+defineEmits(['select-category', 'customize-item', 'quick-add', 'toggle-favorite'])
 </script>
 
 <template>
@@ -74,6 +78,16 @@ defineEmits(['select-category', 'customize-item', 'quick-add'])
         @click="!item.isSoldOut && $emit('customize-item', item)"
       >
         <div class="item-img-placeholder">
+          <button
+            v-if="isLoggedIn"
+            type="button"
+            class="favorite-heart-btn"
+            :class="{ active: item.isFavorite }"
+            :aria-label="item.isFavorite ? 'Remove from favorites' : 'Add to favorites'"
+            @click.stop="$emit('toggle-favorite', item)"
+          >
+            {{ item.isFavorite ? '❤️' : '🤍' }}
+          </button>
           <span class="food-emoji" aria-hidden="true">{{ item.emoji || '🍽️' }}</span>
           <BaseBadge
             v-if="item.isSoldOut"
@@ -191,6 +205,32 @@ defineEmits(['select-category', 'customize-item', 'quick-add'])
   position: absolute;
   top: 10px;
   right: 10px;
+}
+
+.favorite-heart-btn {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  cursor: pointer;
+  z-index: 2;
+  transition: transform 0.15s ease, background-color 0.15s ease;
+  padding: 0;
+  line-height: 1;
+}
+
+.favorite-heart-btn:hover {
+  transform: scale(1.15);
+  background: #ffffff;
 }
 
 .item-details {

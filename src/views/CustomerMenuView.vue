@@ -4,10 +4,14 @@ import { useRouter } from 'vue-router'
 import MenuCatalog from '../components/menu/MenuCatalog.vue'
 import ItemCustomizerModal from '../components/menu/ItemCustomizerModal.vue'
 import { useCart } from '../composables/useCart'
+import { useAuth } from '../composables/useAuth'
 import { api } from '../services/api'
 
 const router = useRouter()
 const { addItem, itemCount, formattedSubtotal } = useCart()
+const { user } = useAuth()
+const isLoggedIn = computed(() => !!user.value)
+const favoriteIds = ref(new Set())
 
 const activeCategory = ref('all')
 const selectedItemForModal = ref(null)
@@ -43,10 +47,22 @@ function getItemEmoji(item) {
 async function fetchMenuData() {
   isLoading.value = true
   try {
-    const [catRes, itemRes] = await Promise.all([
+    const promises = [
       api.get('/menu/categories').catch(() => null),
       api.get('/menu/items').catch(() => null),
-    ])
+    ]
+
+    const token = localStorage.getItem('canteena_token')
+    if (token) {
+      promises.push(api.get('/customer/favorites').catch(() => null))
+    }
+
+    const [catRes, itemRes, favRes] = await Promise.all(promises)
+
+    if (favRes?.data?.favorites) {
+      const ids = favRes.data.favorites.map((f) => f.id || f.menu_item_id)
+      favoriteIds.value = new Set(ids)
+    }
 
     if (catRes?.data?.categories && catRes.data.categories.length > 0) {
       categories.value = [
@@ -68,12 +84,47 @@ async function fetchMenuData() {
         stock: item.stock ?? item.current_stock ?? 0,
         category: item.category || 'meals',
         isSoldOut: Boolean(item.is_sold_out || item.isSoldOut),
+        isFavorite: favoriteIds.value.has(item.id),
       }))
     }
   } catch (err) {
     console.error('Failed to load menu data from database:', err)
   } finally {
     isLoading.value = false
+  }
+}
+
+async function handleToggleFavorite(item) {
+  if (!user.value) return
+
+  const willBeFavorite = !item.isFavorite
+  item.isFavorite = willBeFavorite
+
+  if (willBeFavorite) {
+    favoriteIds.value.add(item.id)
+  } else {
+    favoriteIds.value.delete(item.id)
+  }
+
+  try {
+    const res = await api.post('/customer/favorites/toggle', { menu_item_id: item.id })
+    if (res?.data?.is_favorited !== undefined) {
+      item.isFavorite = res.data.is_favorited
+      if (res.data.is_favorited) {
+        favoriteIds.value.add(item.id)
+      } else {
+        favoriteIds.value.delete(item.id)
+      }
+    }
+  } catch (err) {
+    // Revert on error
+    item.isFavorite = !willBeFavorite
+    if (!willBeFavorite) {
+      favoriteIds.value.add(item.id)
+    } else {
+      favoriteIds.value.delete(item.id)
+    }
+    console.error('Failed to toggle favorite:', err)
   }
 }
 
@@ -119,8 +170,10 @@ function goToCheckout() {
         :items="filteredItems"
         :active-category="activeCategory"
         :loading="isLoading"
+        :is-logged-in="isLoggedIn"
         @select-category="activeCategory = $event"
         @customize-item="handleOpenCustomizer"
+        @toggle-favorite="handleToggleFavorite"
       />
 
       <!-- Item Customizer Modal -->
