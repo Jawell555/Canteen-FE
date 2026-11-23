@@ -1,5 +1,6 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { api } from '../../services/api'
 import BaseButton from '../common/BaseButton.vue'
 import BaseBadge from '../common/BaseBadge.vue'
 import BaseModal from '../common/BaseModal.vue'
@@ -59,6 +60,21 @@ const formData = ref({
   description: '',
 })
 
+async function fetchAdminMenu() {
+  try {
+    const res = await api.get('/admin/menu')
+    if (res.data?.items && res.data.items.length > 0) {
+      items.value = res.data.items
+    }
+  } catch {
+    // If unauthenticated or offline, keep default items
+  }
+}
+
+onMounted(() => {
+  fetchAdminMenu()
+})
+
 function openCreateModal() {
   isEditing.value = false
   editingId.value = null
@@ -85,45 +101,83 @@ function openEditModal(item) {
   isModalOpen.value = true
 }
 
-function handleSaveItem() {
+async function handleSaveItem() {
   if (!formData.value.name.trim()) return
+
+  const payload = {
+    name: formData.value.name.trim(),
+    category: formData.value.category,
+    price: Number(formData.value.price),
+    daily_stock_limit: Number(formData.value.daily_stock_limit),
+    description: formData.value.description.trim(),
+  }
 
   if (isEditing.value) {
     const idx = items.value.findIndex((i) => i.id === editingId.value)
     if (idx > -1) {
       items.value[idx] = {
         ...items.value[idx],
+        ...payload,
+        desc: formData.value.description,
+      }
+    }
+    try {
+      await api.put(`/admin/menu/${editingId.value}`, payload)
+    } catch {
+      // Optimistic update retained
+    }
+  } else {
+    try {
+      const res = await api.post('/admin/menu', payload)
+      if (res.data?.id) {
+        items.value.push({
+          id: res.data.id,
+          name: res.data.name,
+          category: formData.value.category,
+          price: Number(res.data.price),
+          daily_stock_limit: Number(res.data.daily_stock_limit),
+          current_stock: Number(res.data.current_stock ?? res.data.daily_stock_limit),
+          is_sold_out: Boolean(res.data.is_sold_out),
+          desc: res.data.description,
+        })
+      }
+    } catch {
+      items.value.push({
+        id: Date.now(),
         name: formData.value.name,
         category: formData.value.category,
         price: Number(formData.value.price),
         daily_stock_limit: Number(formData.value.daily_stock_limit),
+        current_stock: Number(formData.value.daily_stock_limit),
+        is_sold_out: false,
         desc: formData.value.description,
-      }
+      })
     }
-  } else {
-    items.value.push({
-      id: Date.now(),
-      name: formData.value.name,
-      category: formData.value.category,
-      price: Number(formData.value.price),
-      daily_stock_limit: Number(formData.value.daily_stock_limit),
-      current_stock: Number(formData.value.daily_stock_limit),
-      is_sold_out: false,
-      desc: formData.value.description,
-    })
   }
 
   isModalOpen.value = false
 }
 
-function handleDeleteItem(itemId) {
+async function handleDeleteItem(itemId) {
   if (confirm('Are you sure you want to deactivate this menu item?')) {
     items.value = items.value.filter((i) => i.id !== itemId)
+    try {
+      await api.delete(`/admin/menu/${itemId}`)
+    } catch {
+      // Optimistic delete
+    }
   }
 }
 
-function toggleSoldOut(item) {
+async function toggleSoldOut(item) {
   item.is_sold_out = !item.is_sold_out
+  try {
+    await api.patch(`/staff/menu/${item.id}/toggle-sold-out`, {
+      is_sold_out: item.is_sold_out,
+    })
+  } catch {
+    // Optimistic toggle
+  }
 }
 </script>
 

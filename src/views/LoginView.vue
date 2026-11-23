@@ -1,9 +1,43 @@
 <script setup>
 import { ref } from 'vue'
+import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
+import BaseAlert from '../components/common/BaseAlert.vue'
+import { useAuth } from '../composables/useAuth'
+
+const router = useRouter()
+const { login, isLoading } = useAuth()
 
 const email = ref('')
 const password = ref('')
+const errorMessage = ref('')
+
+function fillCredentials(fillEmail, fillPass) {
+  email.value = fillEmail
+  password.value = fillPass
+  handleLogin()
+}
+
+async function handleLogin() {
+  errorMessage.value = ''
+  try {
+    const data = await login({
+      email: email.value.trim(),
+      password: password.value,
+    })
+
+    const role = data?.user?.role
+    if (role === 'admin') {
+      router.push('/admin')
+    } else if (role === 'staff') {
+      router.push('/staff')
+    } else {
+      router.push('/profile')
+    }
+  } catch (err) {
+    errorMessage.value = err.message || 'Login failed. Please check your credentials.'
+  }
+}
 </script>
 
 <template>
@@ -15,7 +49,17 @@ const password = ref('')
         <p class="login-sub">Sign in to access kitchen queue or canteen management</p>
       </div>
 
-      <form class="login-form" @submit.prevent>
+      <BaseAlert
+        v-if="errorMessage"
+        variant="danger"
+        class="mb-4"
+        :dismissible="true"
+        @dismiss="errorMessage = ''"
+      >
+        {{ errorMessage }}
+      </BaseAlert>
+
+      <form class="login-form" @submit.prevent="handleLogin">
         <div class="form-group">
           <label for="loginEmail" class="form-label">Email Address</label>
           <input
@@ -23,7 +67,7 @@ const password = ref('')
             v-model="email"
             type="email"
             class="form-input"
-            placeholder="staff@canteena.local"
+            placeholder="staff@canteen.local"
             required
           />
         </div>
@@ -40,10 +84,45 @@ const password = ref('')
           />
         </div>
 
-        <BaseButton variant="primary" block size="lg" type="submit" class="mt-4">
-          Sign In
+        <BaseButton
+          variant="primary"
+          block
+          size="lg"
+          type="submit"
+          class="mt-4"
+          :loading="isLoading"
+        >
+          {{ isLoading ? 'Signing In...' : 'Sign In' }}
         </BaseButton>
       </form>
+
+      <!-- Quick Demo Sign-in Helpers -->
+      <div class="demo-helpers">
+        <span class="demo-label">⚡ 1-Click Role Login:</span>
+        <div class="demo-buttons">
+          <button
+            type="button"
+            class="demo-chip staff-chip"
+            @click="fillCredentials('staff@canteen.local', 'staff123')"
+          >
+            👨‍🍳 Kitchen Staff
+          </button>
+          <button
+            type="button"
+            class="demo-chip admin-chip"
+            @click="fillCredentials('admin@canteen.local', 'admin123')"
+          >
+            ⚙️ Administrator
+          </button>
+          <button
+            type="button"
+            class="demo-chip customer-chip"
+            @click="fillCredentials('customer@canteen.local', 'customer123')"
+          >
+            👤 Customer
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -123,8 +202,68 @@ const password = ref('')
   background-color: var(--color-bg-surface);
 }
 
+.mb-4 {
+  margin-bottom: var(--space-4);
+}
+
 .mt-4 {
   margin-top: var(--space-4);
 }
-</style>
 
+.demo-helpers {
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px dashed var(--color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.demo-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  letter-spacing: 0.5px;
+}
+
+.demo-buttons {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.demo-chip {
+  flex: 1;
+  min-width: 100px;
+  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border-default);
+  background-color: var(--color-bg-subtle);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.demo-chip:hover {
+  background-color: var(--color-bg-surface);
+  transform: translateY(-1px);
+}
+
+.staff-chip:hover {
+  border-color: #0284c7;
+  color: #0369a1;
+}
+
+.admin-chip:hover {
+  border-color: #dc2626;
+  color: #b91c1c;
+}
+
+.customer-chip:hover {
+  border-color: #16a34a;
+  color: #15803d;
+}
+</style>

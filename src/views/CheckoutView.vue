@@ -4,8 +4,11 @@ import { useRouter } from 'vue-router'
 import BaseAlert from '../components/common/BaseAlert.vue'
 import BaseButton from '../components/common/BaseButton.vue'
 import { useCart } from '../composables/useCart'
+import { useAuth } from '../composables/useAuth'
+import { api } from '../services/api'
 
 const router = useRouter()
+const { user } = useAuth()
 const {
   items,
   isEmpty,
@@ -15,6 +18,9 @@ const {
   isHoldActive,
   formattedHoldTime,
   startHold,
+  clearCart,
+  clearHold,
+  getCheckoutItems,
 } = useCart()
 
 const customerName = ref('')
@@ -22,28 +28,87 @@ const customerPhone = ref('')
 const paymentMethod = ref('gcash')
 const gcashRef = ref('')
 const isSubmitting = ref(false)
+const errorMessage = ref('')
 
 onMounted(() => {
+  if (user.value) {
+    if (!customerName.value && user.value.name) customerName.value = user.value.name
+    if (!customerPhone.value && user.value.phone_number) customerPhone.value = user.value.phone_number
+  }
+
   if (!isHoldActive.value && !isEmpty.value) {
     startHold(10)
   }
 })
 
-function handlePlaceOrder() {
+async function handlePlaceOrder() {
+  errorMessage.value = ''
   if (!customerName.value.trim()) {
-    alert('Please enter your name for pickup callout.')
+    errorMessage.value = 'Please enter your name for pickup callout.'
     return
   }
   if (paymentMethod.value === 'gcash' && !gcashRef.value.trim()) {
-    alert('Please enter your 13-digit GCash reference number.')
+    errorMessage.value = 'Please enter your GCash reference number.'
     return
   }
 
   isSubmitting.value = true
-  setTimeout(() => {
+
+  try {
+    const rawItems = getCheckoutItems()
+    const checkoutItems = rawItems.map((it) => ({
+      menu_item_id: it.menu_item_id || it.id,
+      quantity: it.quantity,
+      custom_notes: it.custom_notes || '',
+    }))
+
+    const payload = {
+      customer_name: customerName.value.trim(),
+      customer_phone: customerPhone.value.trim() || null,
+      payment_method: paymentMethod.value,
+      reference_number: paymentMethod.value === 'gcash' ? gcashRef.value.trim() : null,
+      items: checkoutItems,
+    }
+
+    const response = await api.post('/orders/checkout', payload)
+    const orderData = response.data?.order || response.data
+    const orderUuid = response.data?.order_uuid || orderData?.uuid || orderData?.id
+    const queueNumber = response.data?.queue_number || orderData?.formatted_queue_number || '#001'
+
+    // Save to user's local order history and last active order
+    localStorage.setItem('canteena_last_order', orderUuid)
+    try {
+      const history = JSON.parse(localStorage.getItem('canteena_order_history') || '[]')
+      history.unshift({
+        order_uuid: orderUuid,
+        queue_number: queueNumber,
+        date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' • ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        status: orderData?.status || 'pending',
+        total: Number(orderData?.total_amount || 0),
+        payment_method: paymentMethod.value === 'gcash' ? 'GCash' : 'Cash at Counter',
+        has_feedback: false,
+        items: rawItems.map((it) => ({
+          id: it.menu_item_id || it.id,
+          name: it.name,
+          price: it.price,
+          quantity: it.quantity,
+          custom_notes: it.custom_notes || '',
+        })),
+      })
+      localStorage.setItem('canteena_order_history', JSON.stringify(history.slice(0, 25)))
+    } catch {
+      // Ignore local storage quota errors
+    }
+
+    clearCart()
+    clearHold()
+
+    router.push(`/orders/${orderUuid}`)
+  } catch (err) {
+    errorMessage.value = err.message || 'Checkout failed. Please try again.'
+  } finally {
     isSubmitting.value = false
-    router.push('/orders/42')
-  }, 600)
+  }
 }
 </script>
 
@@ -67,6 +132,16 @@ function handlePlaceOrder() {
         <!-- 10-Minute Reservation Alert banner -->
         <BaseAlert variant="warning" title="10-Minute Stock Reservation Active">
           Your items are temporarily reserved for <strong class="tabular-nums">{{ formattedHoldTime }}</strong>. Please finalize your checkout before the timer expires to secure your meal.
+        </BaseAlert>
+
+        <BaseAlert
+          v-if="errorMessage"
+          variant="danger"
+          class="mt-4 mb-4"
+          :dismissible="true"
+          @dismiss="errorMessage = ''"
+        >
+          {{ errorMessage }}
         </BaseAlert>
 
         <form class="checkout-grid" @submit.prevent="handlePlaceOrder">

@@ -1,11 +1,14 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
 import BaseBadge from '../components/common/BaseBadge.vue'
+import BaseModal from '../components/common/BaseModal.vue'
 import FeedbackModal from '../components/orders/FeedbackModal.vue'
+import ReceiptView from '../components/orders/ReceiptView.vue'
 import { useCart } from '../composables/useCart'
 import { useAuth } from '../composables/useAuth'
+import { api } from '../services/api'
 
 const router = useRouter()
 const { addItem } = useCart()
@@ -14,6 +17,8 @@ const { user } = useAuth()
 const activeTab = ref('history')
 const isFeedbackModalOpen = ref(false)
 const selectedOrderForFeedback = ref(null)
+const isReceiptModalOpen = ref(false)
+const selectedOrderForReceipt = ref(null)
 const reorderSuccessMsg = ref('')
 
 const pastOrders = ref([
@@ -26,42 +31,91 @@ const pastOrders = ref([
     payment_method: 'GCash',
     has_feedback: false,
     items: [
-      { id: 101, name: 'Chicken Adobo with Rice', price: 85, quantity: 1, custom_notes: 'Penge sabaw' },
-    ],
-  },
-  {
-    order_uuid: 'b12ac34d-1111-2222-3333-444455556666',
-    queue_number: '#019',
-    date: 'Nov 12, 2026 • 11:45 AM',
-    status: 'completed',
-    total: 140.0,
-    payment_method: 'Cash at Counter',
-    has_feedback: true,
-    items: [
-      { id: 102, name: 'Pork Sinigang with Rice', price: 95, quantity: 1, custom_notes: '' },
-      { id: 103, name: 'Toasted Ham & Cheese', price: 45, quantity: 1, custom_notes: '' },
+      { id: 1, name: 'Chicken Adobo with Rice', price: 85, quantity: 1, custom_notes: 'Penge sabaw' },
     ],
   },
 ])
 
-const favoriteItems = ref([
-  {
-    id: 101,
-    name: 'Chicken Adobo with Rice',
-    emoji: '🍛',
-    price: 85.0,
-    category: 'Meals',
-    desc: 'Classic savory chicken braised in vinegar and soy sauce.',
-  },
-  {
-    id: 104,
-    name: 'Iced Calamansi Juice',
-    emoji: '🧃',
-    price: 25.0,
-    category: 'Drinks',
-    desc: 'Chilled native citrus juice freshly squeezed with honey.',
-  },
-])
+const favoriteItems = ref([])
+
+onMounted(async () => {
+  try {
+    const savedHistory = JSON.parse(localStorage.getItem('canteena_order_history') || '[]')
+    if (savedHistory.length > 0) {
+      pastOrders.value = savedHistory
+    }
+  } catch {
+    // fallback
+  }
+
+  const token = localStorage.getItem('canteena_token')
+  if (token) {
+    try {
+      const ordersRes = await api.get('/customer/orders')
+      const backendOrders = ordersRes.data?.orders || []
+      if (backendOrders.length > 0) {
+        pastOrders.value = backendOrders.map((bo) => ({
+          order_uuid: bo.order_uuid || bo.uuid,
+          queue_number: bo.queue_number,
+          date: bo.date,
+          created_at: bo.created_at,
+          customer_name: bo.customer_name,
+          status: bo.status,
+          total: Number(bo.total || bo.total_amount || 0),
+          payment_method: bo.payment_method,
+          payment: bo.payment,
+          has_feedback: Boolean(bo.has_feedback),
+          items: (bo.items || []).map((it) => ({
+            id: it.id,
+            name: it.name,
+            price: Number(it.price || it.unit_price || 0),
+            quantity: Number(it.quantity || 1),
+            custom_notes: it.custom_notes || '',
+          })),
+        }))
+      }
+    } catch {
+      // fallback to localStorage
+    }
+
+    try {
+      const favRes = await api.get('/customer/favorites')
+      const favs = favRes.data?.favorites || favRes.data?.items || []
+      favoriteItems.value = favs.map((it) => ({
+        id: it.id || it.menu_item_id,
+        name: it.name,
+        emoji: it.emoji || '🍽️',
+        price: Number(it.price),
+        category: it.category_name || it.category || 'Meals',
+        desc: it.desc || it.description || '',
+        isSoldOut: Boolean(it.is_sold_out || it.isSoldOut),
+      }))
+    } catch {
+      favoriteItems.value = []
+    }
+  } else {
+    favoriteItems.value = []
+  }
+})
+
+async function handleRemoveFavorite(fav) {
+  const prevList = [...favoriteItems.value]
+  favoriteItems.value = favoriteItems.value.filter((item) => item.id !== fav.id)
+
+  reorderSuccessMsg.value = `Removed ${fav.name} from favorites`
+  setTimeout(() => {
+    reorderSuccessMsg.value = ''
+  }, 2000)
+
+  try {
+    await api.post('/customer/favorites/toggle', {
+      menu_item_id: fav.id,
+    })
+  } catch (err) {
+    favoriteItems.value = prevList
+    console.error('Failed to remove favorite:', err)
+  }
+}
 
 function handleReorder(order) {
   order.items.forEach((item) => {
@@ -83,15 +137,76 @@ function handleAddFavoriteToCart(item) {
   }, 2000)
 }
 
+function openReceiptModal(order) {
+  selectedOrderForReceipt.value = order
+  isReceiptModalOpen.value = true
+}
+
+const formattedOrderForReceipt = computed(() => {
+  if (!selectedOrderForReceipt.value) return null
+  const o = selectedOrderForReceipt.value
+  const isGcash = (o.payment_method || o.paymentMethod || '').toLowerCase().includes('gcash')
+  return {
+    id: o.order_uuid || o.uuid || o.id,
+    queueNumber: o.queue_number || o.queueNumber || '#001',
+    createdAt:
+      o.date ||
+      (o.created_at
+        ? new Date(o.created_at).toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : new Date().toLocaleString()),
+    customerName: o.customer_name || user.value?.name || 'Customer',
+    paymentMethod: isGcash ? 'gcash' : 'cash',
+    referenceNumber:
+      o.payment?.reference_number ||
+      o.referenceNumber ||
+      (isGcash ? '902148192031' : ''),
+    total: Number(o.total || o.total_amount || 0),
+    items: (o.items || []).map((it) => ({
+      name: it.name,
+      price: Number(it.price || it.unit_price || 0),
+      quantity: Number(it.quantity || 1),
+      custom_notes: it.custom_notes || '',
+    })),
+  }
+})
+
 function openFeedbackModal(order) {
   selectedOrderForFeedback.value = order
   isFeedbackModalOpen.value = true
 }
 
-function handleFeedbackSubmitted({ orderUuid }) {
+async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
+  try {
+    await api.post('/feedback', {
+      order_id: orderUuid,
+      rating,
+      comments,
+      user_id: user.value?.id,
+    })
+  } catch (err) {
+    console.error('Failed to submit feedback to server:', err)
+  }
+
   const o = pastOrders.value.find((x) => x.order_uuid === orderUuid)
   if (o) {
     o.has_feedback = true
+  }
+
+  try {
+    const saved = JSON.parse(localStorage.getItem('canteena_order_history') || '[]')
+    const match = saved.find((x) => x.order_uuid === orderUuid)
+    if (match) {
+      match.has_feedback = true
+      localStorage.setItem('canteena_order_history', JSON.stringify(saved))
+    }
+  } catch {
+    // fallback
   }
 }
 </script>
@@ -184,6 +299,14 @@ function handleFeedbackSubmitted({ orderUuid }) {
 
             <div class="card-action-btns">
               <BaseButton
+                variant="outline"
+                size="sm"
+                @click="openReceiptModal(order)"
+              >
+                🧾 Receipt
+              </BaseButton>
+
+              <BaseButton
                 v-if="!order.has_feedback"
                 variant="outline"
                 size="sm"
@@ -210,12 +333,30 @@ function handleFeedbackSubmitted({ orderUuid }) {
 
     <!-- Section B: Favorites -->
     <section v-else-if="activeTab === 'favorites'" class="tab-content">
-      <div class="favorites-grid">
+      <div v-if="favoriteItems.length === 0" class="empty-favorites-box">
+        <span class="empty-fav-icon" aria-hidden="true">❤️</span>
+        <h3 class="empty-fav-title">No Favorite Meals Yet</h3>
+        <p class="empty-fav-sub">Heart your favorite canteen dishes on the menu to quickly find and order them here anytime!</p>
+        <BaseButton variant="primary" size="md" @click="router.push('/')">
+          Explore Menu
+        </BaseButton>
+      </div>
+
+      <div v-else class="favorites-grid">
         <article
           v-for="fav in favoriteItems"
           :key="fav.id"
           class="favorite-card"
         >
+          <button
+            type="button"
+            class="unheart-btn"
+            title="Remove from favorites"
+            aria-label="Remove from favorites"
+            @click="handleRemoveFavorite(fav)"
+          >
+            ❤️
+          </button>
           <span class="fav-emoji" aria-hidden="true">{{ fav.emoji }}</span>
           <div class="fav-info">
             <h3 class="fav-name">{{ fav.name }}</h3>
@@ -241,6 +382,19 @@ function handleFeedbackSubmitted({ orderUuid }) {
       @close="isFeedbackModalOpen = false"
       @submitted="handleFeedbackSubmitted"
     />
+
+    <!-- Digital Receipt Inspection Modal -->
+    <BaseModal
+      :is-open="isReceiptModalOpen"
+      :title="`Order Receipt — ${selectedOrderForReceipt?.queue_number || ''}`"
+      max-width="480px"
+      @close="isReceiptModalOpen = false"
+    >
+      <ReceiptView
+        v-if="formattedOrderForReceipt"
+        :order="formattedOrderForReceipt"
+      />
+    </BaseModal>
   </div>
 </template>
 
@@ -443,6 +597,7 @@ function handleFeedbackSubmitted({ orderUuid }) {
   display: flex;
   gap: var(--space-2);
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .favorites-grid {
@@ -460,6 +615,56 @@ function handleFeedbackSubmitted({ orderUuid }) {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  position: relative;
+}
+
+.unheart-btn {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: transparent;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 50%;
+  transition: transform 0.15s ease;
+  line-height: 1;
+}
+
+.unheart-btn:hover {
+  transform: scale(1.2);
+}
+
+.empty-favorites-box {
+  background-color: var(--color-bg-surface);
+  border: 1px dashed var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.empty-fav-icon {
+  font-size: 40px;
+}
+
+.empty-fav-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.empty-fav-sub {
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  max-width: 400px;
+  margin: 0 0 var(--space-2) 0;
+  line-height: 1.5;
 }
 
 .fav-emoji {
