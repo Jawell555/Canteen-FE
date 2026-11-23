@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuth } from '../composables/useAuth'
 
 const routes = [
   {
@@ -28,20 +29,14 @@ const routes = [
   {
     path: '/staff',
     name: 'staff',
-    component: () => import('../views/StaffDashboardView.vue'),
+    component: () => import('../views/StaffView.vue'),
     meta: { title: 'Kitchen Queue — Canteena Staff', requiresAuth: true, role: 'staff' },
   },
   {
     path: '/admin',
     name: 'admin',
-    component: () => import('../views/AdminDashboardView.vue'),
+    component: () => import('../views/AdminView.vue'),
     meta: { title: 'Management — Canteena Admin', requiresAuth: true, role: 'admin' },
-  },
-  {
-    path: '/login',
-    name: 'login',
-    component: () => import('../views/LoginView.vue'),
-    meta: { title: 'Sign In — Canteena' },
   },
   {
     path: '/:pathMatch(.*)*',
@@ -60,6 +55,17 @@ const router = createRouter({
 router.beforeEach((to) => {
   if (to.meta.title) {
     document.title = to.meta.title
+  }
+
+  const { isAuthenticated, user } = useAuth()
+  if (isAuthenticated.value) {
+    const role = user.value?.role
+    if (to.path === '/admin' && role === 'staff') {
+      return '/staff'
+    }
+    if (to.path === '/staff' && role === 'admin') {
+      return '/admin'
+    }
   }
 })
 

@@ -135,7 +135,7 @@ async function toggleStaffStatus(staff) {
           <span style="color: #b45309; font-size: 13px;">You are currently previewing in read-only mode. Sign in as an administrator to save mutations directly to Neon PostgreSQL.</span>
         </div>
       </div>
-      <router-link to="/login" style="background: #b45309; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 700; text-decoration: none; font-size: 13px;">
+      <router-link to="/admin" style="background: #b45309; color: white; padding: 8px 16px; border-radius: 6px; font-weight: 700; text-decoration: none; font-size: 13px;">
         Sign In as Admin
       </router-link>
     </div>

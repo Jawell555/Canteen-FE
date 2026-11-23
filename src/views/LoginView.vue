@@ -1,22 +1,42 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
 import BaseAlert from '../components/common/BaseAlert.vue'
 import { useAuth } from '../composables/useAuth'
 
+const props = defineProps({
+  portal: {
+    type: String,
+    default: 'admin',
+  },
+})
+
 const router = useRouter()
-const { login, isLoading } = useAuth()
+const { login, logout, isLoading } = useAuth()
 
 const email = ref('')
 const password = ref('')
 const errorMessage = ref('')
 
-function fillCredentials(fillEmail, fillPass) {
-  email.value = fillEmail
-  password.value = fillPass
-  handleLogin()
-}
+const isStaffPortal = computed(() => props.portal === 'staff')
+
+const portalConfig = computed(() => {
+  if (isStaffPortal.value) {
+    return {
+      icon: '👨‍🍳',
+      title: 'Staff Login',
+      sub: 'Sign in to access kitchen queue and order fulfillment',
+      placeholder: 'staff@canteen.local',
+    }
+  }
+  return {
+    icon: '⚙️',
+    title: 'Administrator Login',
+    sub: 'Sign in to access canteen management and sales reporting',
+    placeholder: 'admin@canteen.local',
+  }
+})
 
 async function handleLogin() {
   errorMessage.value = ''
@@ -27,12 +47,24 @@ async function handleLogin() {
     })
 
     const role = data?.user?.role
-    if (role === 'admin') {
-      router.push('/admin')
-    } else if (role === 'staff') {
-      router.push('/staff')
+    if (isStaffPortal.value) {
+      if (role === 'staff') {
+        router.push('/staff')
+      } else if (role === 'admin') {
+        router.push('/admin')
+      } else {
+        await logout()
+        errorMessage.value = 'Access denied. Only kitchen staff can access the Staff portal.'
+      }
     } else {
-      router.push('/profile')
+      if (role === 'admin') {
+        router.push('/admin')
+      } else if (role === 'staff') {
+        router.push('/staff')
+      } else {
+        await logout()
+        errorMessage.value = 'Access denied. Only administrators can access the Admin portal.'
+      }
     }
   } catch (err) {
     errorMessage.value = err.message || 'Login failed. Please check your credentials.'
@@ -44,9 +76,9 @@ async function handleLogin() {
   <div class="login-view">
     <div class="login-card">
       <div class="login-header">
-        <span class="login-icon" aria-hidden="true">🔐</span>
-        <h1 class="login-title">Staff & Admin Login</h1>
-        <p class="login-sub">Sign in to access kitchen queue or canteen management</p>
+        <span class="login-icon" aria-hidden="true">{{ portalConfig.icon }}</span>
+        <h1 class="login-title">{{ portalConfig.title }}</h1>
+        <p class="login-sub">{{ portalConfig.sub }}</p>
       </div>
 
       <BaseAlert
@@ -67,7 +99,7 @@ async function handleLogin() {
             v-model="email"
             type="email"
             class="form-input"
-            placeholder="staff@canteen.local"
+            :placeholder="portalConfig.placeholder"
             required
           />
         </div>
@@ -95,34 +127,6 @@ async function handleLogin() {
           {{ isLoading ? 'Signing In...' : 'Sign In' }}
         </BaseButton>
       </form>
-
-      <!-- Quick Demo Sign-in Helpers -->
-      <div class="demo-helpers">
-        <span class="demo-label">⚡ 1-Click Role Login:</span>
-        <div class="demo-buttons">
-          <button
-            type="button"
-            class="demo-chip staff-chip"
-            @click="fillCredentials('staff@canteen.local', 'staff123')"
-          >
-            👨‍🍳 Kitchen Staff
-          </button>
-          <button
-            type="button"
-            class="demo-chip admin-chip"
-            @click="fillCredentials('admin@canteen.local', 'admin123')"
-          >
-            ⚙️ Administrator
-          </button>
-          <button
-            type="button"
-            class="demo-chip customer-chip"
-            @click="fillCredentials('customer@canteen.local', 'customer123')"
-          >
-            👤 Customer
-          </button>
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -208,62 +212,5 @@ async function handleLogin() {
 
 .mt-4 {
   margin-top: var(--space-4);
-}
-
-.demo-helpers {
-  margin-top: var(--space-6);
-  padding-top: var(--space-4);
-  border-top: 1px dashed var(--color-border-subtle);
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.demo-label {
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  color: var(--color-text-muted);
-  letter-spacing: 0.5px;
-}
-
-.demo-buttons {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.demo-chip {
-  flex: 1;
-  min-width: 100px;
-  padding: 8px 10px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-default);
-  background-color: var(--color-bg-subtle);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.demo-chip:hover {
-  background-color: var(--color-bg-surface);
-  transform: translateY(-1px);
-}
-
-.staff-chip:hover {
-  border-color: #0284c7;
-  color: #0369a1;
-}
-
-.admin-chip:hover {
-  border-color: #dc2626;
-  color: #b91c1c;
-}
-
-.customer-chip:hover {
-  border-color: #16a34a;
-  color: #15803d;
 }
 </style>

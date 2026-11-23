@@ -64,7 +64,7 @@ function togglePolling() {
         <span style="font-size: 20px;">ℹ️</span>
         <span style="color: #1e40af; font-size: 13px; font-weight: 600;">Viewing Kitchen Queue in preview mode. Sign in with kitchen staff credentials to verify payments and advance statuses live.</span>
       </div>
-      <router-link to="/login" style="background: #2563eb; color: white; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; text-decoration: none;">
+      <router-link to="/staff" style="background: #2563eb; color: white; padding: 6px 14px; border-radius: 6px; font-size: 13px; font-weight: 700; text-decoration: none;">
         Sign In as Staff
       </router-link>
     </div>

@@ -2,6 +2,7 @@
 import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../../composables/useAuth'
+import LoginModal from './LoginModal.vue'
 
 defineProps({
   cartCount: {
@@ -14,9 +15,10 @@ defineEmits(['toggle-cart'])
 
 const router = useRouter()
 const currentRouteName = computed(() => router.currentRoute.value.name)
-const { user, isAuthenticated, isStaff, isAdmin, logout } = useAuth()
+const { user, isAuthenticated, isAdmin, logout } = useAuth()
 
 const isMobileDrawerOpen = ref(false)
+const isLoginModalOpen = ref(false)
 
 function toggleMobileDrawer() {
   isMobileDrawerOpen.value = !isMobileDrawerOpen.value
@@ -26,10 +28,19 @@ function closeMobileDrawer() {
   isMobileDrawerOpen.value = false
 }
 
+function openLoginModal() {
+  closeMobileDrawer()
+  isLoginModalOpen.value = true
+}
+
+function closeLoginModal() {
+  isLoginModalOpen.value = false
+}
+
 async function handleLogout() {
   closeMobileDrawer()
   await logout()
-  router.push('/login')
+  router.push('/')
 }
 
 // Automatically close drawer when route changes
@@ -81,11 +92,7 @@ watch(isMobileDrawerOpen, (isOpen) => {
 
       <!-- Desktop Nav Links (> 640px) -->
       <nav class="nav-links desktop-nav" aria-label="Main Navigation">
-        <router-link
-          to="/"
-          class="nav-link"
-          :class="{ active: currentRouteName === 'menu' }"
-        >
+        <router-link to="/" class="nav-link" :class="{ active: currentRouteName === 'menu' }">
           Menu
         </router-link>
         <router-link
@@ -103,7 +110,7 @@ watch(isMobileDrawerOpen, (isOpen) => {
           Profile
         </router-link>
         <router-link
-          v-if="isStaff || isAdmin"
+          v-if="user?.role === 'staff'"
           to="/staff"
           class="nav-link staff-link"
           :class="{ active: currentRouteName === 'staff' }"
@@ -136,13 +143,7 @@ watch(isMobileDrawerOpen, (isOpen) => {
             Logout
           </button>
         </div>
-        <router-link
-          v-else
-          to="/login"
-          class="login-btn"
-        >
-          Sign In
-        </router-link>
+        <button v-else type="button" class="login-btn" @click="openLoginModal">Sign In</button>
 
         <button
           type="button"
@@ -201,9 +202,9 @@ watch(isMobileDrawerOpen, (isOpen) => {
                 </button>
               </div>
               <div v-else class="drawer-signin-banner">
-                <router-link to="/login" class="drawer-signin-btn" @click="closeMobileDrawer">
+                <button type="button" class="drawer-signin-btn" @click="openLoginModal">
                   🔑 Sign In to Canteena
-                </router-link>
+                </button>
               </div>
 
               <span class="drawer-section-label">Order & Account</span>
@@ -234,11 +235,12 @@ watch(isMobileDrawerOpen, (isOpen) => {
                 </router-link>
               </nav>
 
-              <template v-if="isStaff || isAdmin">
+              <template v-if="user?.role === 'staff' || isAdmin">
                 <div class="drawer-divider"></div>
                 <span class="drawer-section-label">Canteen Operations</span>
                 <nav class="drawer-nav" aria-label="Mobile Staff Navigation">
                   <router-link
+                    v-if="user?.role === 'staff'"
                     to="/staff"
                     class="drawer-nav-item staff-item"
                     :class="{ active: currentRouteName === 'staff' }"
@@ -266,6 +268,8 @@ watch(isMobileDrawerOpen, (isOpen) => {
         </div>
       </Transition>
     </Teleport>
+
+    <LoginModal :is-open="isLoginModalOpen" @close="closeLoginModal" />
   </header>
 </template>
 
@@ -673,11 +677,13 @@ watch(isMobileDrawerOpen, (isOpen) => {
   border: 1.5px solid var(--color-primary-base);
   color: var(--color-primary-base);
   text-decoration: none;
+  font-family: inherit;
   font-weight: 600;
   font-size: 14px;
   padding: 6px 14px;
   border-radius: var(--radius-full);
   min-height: 38px;
+  cursor: pointer;
   transition: all 0.15s ease;
 }
 
@@ -742,6 +748,10 @@ watch(isMobileDrawerOpen, (isOpen) => {
 
 .drawer-signin-btn {
   display: block;
+  width: 100%;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
   text-align: center;
   background-color: var(--color-primary-base);
   color: white;
