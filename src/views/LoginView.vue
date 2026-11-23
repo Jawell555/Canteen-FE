@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
 import BaseAlert from '../components/common/BaseAlert.vue'
@@ -13,7 +13,7 @@ const props = defineProps({
 })
 
 const router = useRouter()
-const { login, logout, isLoading } = useAuth()
+const { login, logout, isLoading, isAuthenticated, user } = useAuth()
 
 const email = ref('')
 const password = ref('')
@@ -38,6 +38,32 @@ const portalConfig = computed(() => {
   }
 })
 
+function checkExistingSession() {
+  if (!isAuthenticated.value) return
+  const currentRole = user.value?.role
+  if (isStaffPortal.value) {
+    if (currentRole === 'admin') {
+      errorMessage.value =
+        'This is an Administrator account. Please log in through the Admin Portal.'
+    } else if (currentRole !== 'staff') {
+      errorMessage.value =
+        'Access restricted. Customer accounts cannot access the Staff Portal.'
+    }
+  } else {
+    if (currentRole === 'staff') {
+      errorMessage.value =
+        'This is a Staff account. Please log in through the Staff Portal.'
+    } else if (currentRole !== 'admin') {
+      errorMessage.value =
+        'Access restricted. Customer accounts cannot access the Admin Portal.'
+    }
+  }
+}
+
+onMounted(() => {
+  checkExistingSession()
+})
+
 async function handleLogin() {
   errorMessage.value = ''
   try {
@@ -51,23 +77,29 @@ async function handleLogin() {
       if (role === 'staff') {
         router.push('/staff')
       } else if (role === 'admin') {
-        router.push('/admin')
+        await logout()
+        errorMessage.value =
+          'This is an Administrator account. Please log in through the Admin Portal.'
       } else {
         await logout()
-        errorMessage.value = 'Access denied. Only kitchen staff can access the Staff portal.'
+        errorMessage.value =
+          'Access restricted. Customer accounts cannot access the Staff Portal.'
       }
     } else {
       if (role === 'admin') {
         router.push('/admin')
       } else if (role === 'staff') {
-        router.push('/staff')
+        await logout()
+        errorMessage.value =
+          'This is a Staff account. Please log in through the Staff Portal.'
       } else {
         await logout()
-        errorMessage.value = 'Access denied. Only administrators can access the Admin portal.'
+        errorMessage.value =
+          'Access restricted. Customer accounts cannot access the Admin Portal.'
       }
     }
   } catch (err) {
-    errorMessage.value = err.message || 'Login failed. Please check your credentials.'
+    errorMessage.value = err.message || 'Invalid email or password.'
   }
 }
 </script>
@@ -101,6 +133,7 @@ async function handleLogin() {
             class="form-input"
             :placeholder="portalConfig.placeholder"
             required
+            @input="errorMessage = ''"
           />
         </div>
 
@@ -113,6 +146,7 @@ async function handleLogin() {
             class="form-input"
             placeholder="••••••••"
             required
+            @input="errorMessage = ''"
           />
         </div>
 

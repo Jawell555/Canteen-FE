@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '../../composables/useAuth'
 import LoginModal from './LoginModal.vue'
+import RegisterModal from './RegisterModal.vue'
 
 defineProps({
   cartCount: {
@@ -19,6 +20,7 @@ const { user, isAuthenticated, isAdmin, logout } = useAuth()
 
 const isMobileDrawerOpen = ref(false)
 const isLoginModalOpen = ref(false)
+const isRegisterModalOpen = ref(false)
 
 function toggleMobileDrawer() {
   isMobileDrawerOpen.value = !isMobileDrawerOpen.value
@@ -30,11 +32,30 @@ function closeMobileDrawer() {
 
 function openLoginModal() {
   closeMobileDrawer()
+  isRegisterModalOpen.value = false
   isLoginModalOpen.value = true
 }
 
 function closeLoginModal() {
   isLoginModalOpen.value = false
+}
+
+function closeRegisterModal() {
+  isRegisterModalOpen.value = false
+}
+
+function switchToRegister() {
+  isLoginModalOpen.value = false
+  setTimeout(() => {
+    isRegisterModalOpen.value = true
+  }, 220)
+}
+
+function switchToLogin() {
+  isRegisterModalOpen.value = false
+  setTimeout(() => {
+    isLoginModalOpen.value = true
+  }, 220)
 }
 
 async function handleLogout() {
@@ -269,7 +290,16 @@ watch(isMobileDrawerOpen, (isOpen) => {
       </Transition>
     </Teleport>
 
-    <LoginModal :is-open="isLoginModalOpen" @close="closeLoginModal" />
+    <LoginModal
+      :is-open="isLoginModalOpen"
+      @close="closeLoginModal"
+      @switch-to-register="switchToRegister"
+    />
+    <RegisterModal
+      :is-open="isRegisterModalOpen"
+      @close="closeRegisterModal"
+      @switch-to-login="switchToLogin"
+    />
   </header>
 </template>
 

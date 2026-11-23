@@ -12,7 +12,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['close'])
+const emit = defineEmits(['close', 'switch-to-register'])
 
 const router = useRouter()
 const { login, logout, isLoading } = useAuth()
@@ -24,6 +24,11 @@ const errorMessage = ref('')
 function handleClose() {
   errorMessage.value = ''
   emit('close')
+}
+
+function handleSwitchToRegister() {
+  errorMessage.value = ''
+  emit('switch-to-register')
 }
 
 function handleKeyDown(e) {
@@ -38,7 +43,11 @@ watch(
     if (val) {
       document.body.style.overflow = 'hidden'
     } else {
-      document.body.style.overflow = ''
+      setTimeout(() => {
+        if (!document.querySelector('.modal-backdrop')) {
+          document.body.style.overflow = ''
+        }
+      }, 250)
       errorMessage.value = ''
     }
   },
@@ -50,7 +59,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
-  document.body.style.overflow = ''
+  if (!document.querySelector('.modal-backdrop')) {
+    document.body.style.overflow = ''
+  }
 })
 
 async function handleLogin() {
@@ -62,10 +73,19 @@ async function handleLogin() {
     })
 
     const role = data?.user?.role
-    if (role === 'staff' || role === 'admin') {
+    if (role === 'staff') {
       await logout()
-      errorMessage.value =
-        'Staff and Administrator accounts must sign in via the Staff/Admin portal (/admin).'
+      errorMessage.value = 'This is a Staff account. Please log in through the Staff Portal.'
+      return
+    }
+    if (role === 'admin') {
+      await logout()
+      errorMessage.value = 'This is an Administrator account. Please log in through the Admin Portal.'
+      return
+    }
+    if (role !== 'customer') {
+      await logout()
+      errorMessage.value = 'Access restricted. Please log in through the appropriate portal.'
       return
     }
 
@@ -74,7 +94,7 @@ async function handleLogin() {
     handleClose()
     router.push('/profile')
   } catch (err) {
-    errorMessage.value = err.message || 'Login failed. Please check your credentials.'
+    errorMessage.value = err.message || 'Invalid email or password.'
   }
 }
 </script>
@@ -126,6 +146,7 @@ async function handleLogin() {
                 class="form-input"
                 placeholder="customer@canteen.local"
                 required
+                @input="errorMessage = ''"
               />
             </div>
 
@@ -138,6 +159,7 @@ async function handleLogin() {
                 class="form-input"
                 placeholder="••••••••"
                 required
+                @input="errorMessage = ''"
               />
             </div>
 
@@ -152,6 +174,19 @@ async function handleLogin() {
               {{ isLoading ? 'Signing In...' : 'Sign In' }}
             </BaseButton>
           </form>
+
+          <div class="modal-footer-nav">
+            <p class="switch-prompt">
+              Don't have an account?
+              <button
+                type="button"
+                class="switch-btn"
+                @click="handleSwitchToRegister"
+              >
+                Sign Up
+              </button>
+            </p>
+          </div>
         </div>
       </div>
     </Transition>
@@ -269,6 +304,35 @@ async function handleLogin() {
 
 .mt-4 {
   margin-top: var(--space-4);
+}
+
+.modal-footer-nav {
+  margin-top: var(--space-6);
+  text-align: center;
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: var(--space-4);
+}
+
+.switch-prompt {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.switch-btn {
+  background: none;
+  border: none;
+  color: var(--color-primary-base);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 0 4px;
+  text-decoration: underline;
+  transition: color 0.15s ease;
+}
+
+.switch-btn:hover {
+  color: var(--color-primary-dark);
 }
 
 /* Transitions */

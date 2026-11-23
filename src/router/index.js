@@ -1,5 +1,4 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { useAuth } from '../composables/useAuth'
 
 const routes = [
   {
@@ -55,17 +54,6 @@ const router = createRouter({
 router.beforeEach((to) => {
   if (to.meta.title) {
     document.title = to.meta.title
-  }
-
-  const { isAuthenticated, user } = useAuth()
-  if (isAuthenticated.value) {
-    const role = user.value?.role
-    if (to.path === '/admin' && role === 'staff') {
-      return '/staff'
-    }
-    if (to.path === '/staff' && role === 'admin') {
-      return '/admin'
-    }
   }
 })
 
