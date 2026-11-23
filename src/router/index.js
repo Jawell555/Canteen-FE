@@ -26,6 +26,12 @@ const routes = [
     meta: { title: 'My Profile & History — Canteena' },
   },
   {
+  path: '/settings',
+  name: 'settings',
+  component: () => import('../views/SettingsView.vue'),
+  meta: { title: 'Settings — Canteena' },
+  },
+  {
     path: '/staff',
     name: 'staff',
     component: () => import('../views/StaffView.vue'),
