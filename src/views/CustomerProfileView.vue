@@ -13,6 +13,27 @@ import { api } from '../services/api'
 const router = useRouter()
 const { addItem } = useCart()
 const { user } = useAuth()
+const isCustomer = computed(() => user.value?.role === 'customer')
+const isStaff = computed(() => user.value?.role === 'staff')
+const isAdmin = computed(() => user.value?.role === 'admin')
+
+const roleLabel = computed(() => {
+  if (isAdmin.value) return 'Administrator'
+  if (isStaff.value) return 'Canteen Staff'
+  return 'Customer'
+})
+
+const profileDescription = computed(() => {
+  if (isAdmin.value) {
+    return 'Canteen Administrator • Manages and oversees canteen operations'
+  }
+
+  if (isStaff.value) {
+    return 'Canteen Staff • Handles customer orders and food preparation'
+  }
+
+  return 'Campus Customer'
+})
 
 const activeTab = ref('history')
 const isFeedbackModalOpen = ref(false)
@@ -214,19 +235,98 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
 <template>
   <div class="profile-view">
     <!-- Profile Card Header -->
-    <header class="profile-header-card">
-      <div class="avatar-circle" aria-hidden="true">
-        👤
+    <!-- Profile Card Header -->
+<header class="profile-header-card">
+  <div class="avatar-circle" aria-hidden="true">
+    👤
+  </div>
+
+  <div class="profile-info">
+    <h1 class="profile-name">
+      {{ user?.name || 'User' }}
+    </h1>
+
+    <div class="profile-role">
+      <span
+        class="role-badge"
+        :class="user?.role"
+      >
+        {{ roleLabel }}
+      </span>
+
+      <p class="profile-sub">
+        {{ user?.email || 'No email available' }}
+      </p>
+    </div>
+
+    <p class="profile-description">
+      {{ profileDescription }}
+    </p>
+  </div>
+
+  <!-- Customer-only order statistics -->
+  <div v-if="isCustomer" class="profile-stat-box">
+    <span class="stat-number tabular-nums">
+      {{ pastOrders.length }}
+    </span>
+    <span class="stat-label">Orders Completed</span>
+  </div>
+</header>
+
+<!-- General Information for Staff and Admin -->
+<section v-if="!isCustomer" class="general-info-section">
+
+  <div class="section-heading">
+    <h2>General Information</h2>
+    <p>Your account details and system role</p>
+  </div>
+
+  <div class="general-info-card">
+
+    <div class="info-row">
+      <div class="info-icon">👤</div>
+      <div class="info-content">
+        <span class="info-label">Full Name</span>
+        <strong>{{ user?.name || 'Not available' }}</strong>
       </div>
-      <div class="profile-info">
-        <h1 class="profile-name">{{ user?.name || 'Juan Dela Cruz' }}</h1>
-        <p class="profile-sub">{{ user?.email || 'juan.delacruz@campus.edu.ph' }} • Campus Customer</p>
+    </div>
+
+    <div class="info-row">
+      <div class="info-icon">✉️</div>
+      <div class="info-content">
+        <span class="info-label">Email Address</span>
+        <strong>{{ user?.email || 'Not available' }}</strong>
       </div>
-      <div class="profile-stat-box">
-        <span class="stat-number tabular-nums">{{ pastOrders.length }}</span>
-        <span class="stat-label">Orders Completed</span>
+    </div>
+
+    <div class="info-row">
+      <div class="info-icon">🛡️</div>
+      <div class="info-content">
+        <span class="info-label">Account Role</span>
+        <strong>{{ roleLabel }}</strong>
       </div>
-    </header>
+    </div>
+
+    <div class="info-row">
+      <div class="info-icon">📱</div>
+      <div class="info-content">
+        <span class="info-label">Phone Number</span>
+        <strong>{{ user?.phone_number || 'Not provided' }}</strong>
+      </div>
+    </div>
+
+    <div class="info-row">
+      <div class="info-icon">🏢</div>
+      <div class="info-content">
+        <span class="info-label">Account Type</span>
+        <strong>
+          {{ isAdmin ? 'System Administrator' : 'Canteen Staff Account' }}
+        </strong>
+      </div>
+    </div>
+
+  </div>
+</section>
 
     <!-- Notification Toast -->
     <Transition name="fade">
@@ -236,28 +336,13 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
     </Transition>
 
     <!-- Tabs Navigation -->
-    <nav class="profile-tabs" role="tablist" aria-label="Customer Profile Navigation">
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'history'"
-        class="tab-btn"
-        :class="{ active: activeTab === 'history' }"
-        @click="activeTab = 'history'"
-      >
-        📋 Order History
-      </button>
-      <button
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'favorites'"
-        class="tab-btn"
-        :class="{ active: activeTab === 'favorites' }"
-        @click="activeTab = 'favorites'"
-      >
-        ❤️ Favorite Meals
-      </button>
-    </nav>
+    <nav
+  v-if="isCustomer"
+  class="profile-tabs"
+  role="tablist"
+  aria-label="Customer Profile Navigation"
+>
+</nav>
 
     <!-- Section A: Order History -->
     <section v-if="activeTab === 'history'" class="tab-content">
@@ -399,6 +484,119 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
 </template>
 
 <style scoped>
+/* PROFILE ROLE */
+.profile-role {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.role-badge.customer {
+  background-color: #dcfce7;
+  color: #15803d;
+}
+
+.role-badge.staff {
+  background-color: #e0f2fe;
+  color: #0369a1;
+}
+
+.role-badge.admin {
+  background-color: #fee2e2;
+  color: #991b1b;
+}
+
+.profile-description {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-top: 6px;
+}
+
+/* GENERAL INFORMATION */
+.general-info-section {
+  margin-top: var(--space-6);
+}
+
+.section-heading {
+  margin-bottom: var(--space-4);
+}
+
+.section-heading h2 {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--color-text-primary);
+  margin-bottom: 4px;
+}
+
+.section-heading p {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.general-info-card {
+  background-color: var(--color-bg-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-subtle);
+  padding: var(--space-4) var(--space-6);
+}
+
+.info-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4) 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+}
+
+.info-icon {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-bg-subtle);
+  border-radius: var(--radius-md);
+  font-size: 18px;
+}
+
+.info-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.info-label {
+  font-size: 11px;
+  color: var(--color-text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.info-content strong {
+  font-size: 14px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
 .profile-view {
   max-width: 900px;
   margin: 0 auto;

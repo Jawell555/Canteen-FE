@@ -18,6 +18,7 @@ const router = useRouter()
 const currentRouteName = computed(() => router.currentRoute.value.name)
 const { user, isAuthenticated, isAdmin, logout } = useAuth()
 
+
 const isMobileDrawerOpen = ref(false)
 const isLoginModalOpen = ref(false)
 const isRegisterModalOpen = ref(false)
