@@ -21,6 +21,15 @@ const { user, isAuthenticated, isAdmin, logout } = useAuth()
 const isMobileDrawerOpen = ref(false)
 const isLoginModalOpen = ref(false)
 const isRegisterModalOpen = ref(false)
+const isAccountMenuOpen = ref(false)
+
+function toggleAccountMenu() {
+  isAccountMenuOpen.value = !isAccountMenuOpen.value
+}
+
+function closeAccountMenu() {
+  isAccountMenuOpen.value = false
+}
 
 function toggleMobileDrawer() {
   isMobileDrawerOpen.value = !isMobileDrawerOpen.value
@@ -28,6 +37,7 @@ function toggleMobileDrawer() {
 
 function closeMobileDrawer() {
   isMobileDrawerOpen.value = false
+  isAccountMenuOpen.value = false
 }
 
 function openLoginModal() {
@@ -69,6 +79,7 @@ watch(
   () => router.currentRoute.value.fullPath,
   () => {
     closeMobileDrawer()
+    closeAccountMenu()
   },
 )
 
@@ -123,13 +134,7 @@ watch(isMobileDrawerOpen, (isOpen) => {
         >
           Track Order
         </router-link>
-        <router-link
-          to="/profile"
-          class="nav-link"
-          :class="{ active: currentRouteName === 'profile' }"
-        >
-          Profile
-        </router-link>
+        
         <router-link
           v-if="user?.role === 'staff'"
           to="/staff"
@@ -149,22 +154,83 @@ watch(isMobileDrawerOpen, (isOpen) => {
       </nav>
 
       <div class="navbar-actions">
-        <!-- Authenticated Profile / Sign In Pill -->
-        <div v-if="isAuthenticated" class="auth-box">
-          <span class="user-chip" :title="user?.email">
-            <span class="user-role-badge" :class="user?.role">{{ user?.role }}</span>
-            <span class="user-name-text">{{ user?.name?.split(' ')[0] }}</span>
-          </span>
-          <button
-            type="button"
-            class="logout-btn"
-            title="Sign out of Canteena"
-            @click="handleLogout"
-          >
-            Logout
-          </button>
-        </div>
-        <button v-else type="button" class="login-btn" @click="openLoginModal">Sign In</button>
+        
+<!-- ACCOUNT DROPDOWN - LOGGED IN USERS -->
+<div v-if="isAuthenticated" class="account-dropdown">
+
+  <button
+    type="button"
+    class="user-chip account-trigger"
+    :aria-expanded="isAccountMenuOpen"
+    aria-haspopup="true"
+    @click="toggleAccountMenu"
+  >
+    <span class="user-role-badge" :class="user?.role">
+      {{ user?.role }}
+    </span>
+
+    <span class="user-name-text">
+      {{ user?.name?.split(' ')[0] }}
+    </span>
+
+    <span class="dropdown-arrow" :class="{ rotated: isAccountMenuOpen }">
+      ▾
+    </span>
+  </button>
+
+  <Transition name="dropdown">
+    <div v-if="isAccountMenuOpen" class="account-menu">
+
+      <div class="account-menu-header">
+        <strong>{{ user?.name }}</strong>
+        <span>{{ user?.email }}</span>
+      </div>
+
+      <div class="account-menu-divider"></div>
+
+      <router-link
+        to="/profile"
+        class="account-menu-item"
+        @click="closeAccountMenu"
+      >
+        <span>👤</span>
+        Profile
+      </router-link>
+
+      <router-link
+        to="/settings"
+        class="account-menu-item"
+        @click="closeAccountMenu"
+      >
+        <span>⚙️</span>
+        Settings
+      </router-link>
+
+      <div class="account-menu-divider"></div>
+
+      <button
+        type="button"
+        class="account-menu-item logout-menu-item"
+        @click="handleLogout"
+      >
+        <span>↪</span>
+        Logout
+      </button>
+
+    </div>
+  </Transition>
+</div>
+
+<!-- SIGN IN - GUEST USERS -->
+<button
+  v-else
+  type="button"
+  class="login-btn"
+  @click="openLoginModal"
+>
+  Sign In
+</button>
+
 
         <button
           type="button"
@@ -229,32 +295,59 @@ watch(isMobileDrawerOpen, (isOpen) => {
               </div>
 
               <span class="drawer-section-label">Order & Account</span>
+              
+              
               <nav class="drawer-nav" aria-label="Mobile Main Navigation">
+
+                <!-- Menu: Available to Everyone -->
                 <router-link
                   to="/"
                   class="drawer-nav-item"
                   :class="{ active: currentRouteName === 'menu' }"
+                  @click="closeMobileDrawer"
                 >
                   <span class="nav-icon" aria-hidden="true">🍲</span>
                   <span>Today's Menu</span>
                 </router-link>
+
+                <!-- Track Order: Available to Everyone -->
                 <router-link
                   to="/orders"
                   class="drawer-nav-item"
                   :class="{ active: currentRouteName === 'orders' }"
+                  @click="closeMobileDrawer"
                 >
                   <span class="nav-icon" aria-hidden="true">📋</span>
                   <span>Track Live Order</span>
                 </router-link>
-                <router-link
-                  to="/profile"
-                  class="drawer-nav-item"
-                  :class="{ active: currentRouteName === 'profile' }"
-                >
-                  <span class="nav-icon" aria-hidden="true">👤</span>
-                  <span>My Profile & History</span>
-                </router-link>
+
+                <!-- Profile and Settings: Logged-in Users Only -->
+                <template v-if="isAuthenticated">
+
+                  <router-link
+                    to="/profile"
+                    class="drawer-nav-item"
+                    :class="{ active: currentRouteName === 'profile' }"
+                    @click="closeMobileDrawer"
+                  >
+                    <span class="nav-icon" aria-hidden="true">👤</span>
+                    <span>My Profile & History</span>
+                  </router-link>
+
+                  <router-link
+                    to="/settings"
+                    class="drawer-nav-item"
+                    :class="{ active: currentRouteName === 'settings' }"
+                    @click="closeMobileDrawer"
+                  >
+                    <span class="nav-icon" aria-hidden="true">⚙️</span>
+                    <span>Settings</span>
+                  </router-link>
+
+                </template>
+
               </nav>
+
 
               <template v-if="user?.role === 'staff' || isAdmin">
                 <div class="drawer-divider"></div>
@@ -304,6 +397,112 @@ watch(isMobileDrawerOpen, (isOpen) => {
 </template>
 
 <style scoped>
+
+
+/* ACCOUNT DROPDOWN */
+.account-dropdown {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.account-trigger {
+  cursor: pointer;
+  font-family: inherit;
+  min-height: 38px;
+}
+
+.dropdown-arrow {
+  font-size: 12px;
+  transition: transform 0.2s ease;
+}
+
+.dropdown-arrow.rotated {
+  transform: rotate(180deg);
+}
+
+.account-menu {
+  position: absolute;
+  top: calc(100% + 12px);
+  right: 0;
+  width: 230px;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevated);
+  padding: 8px;
+  z-index: 200;
+}
+
+.account-menu-header {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 12px;
+  overflow: hidden;
+}
+
+.account-menu-header strong {
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+
+.account-menu-header span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.account-menu-divider {
+  height: 1px;
+  background: var(--color-border-subtle);
+  margin: 5px 0;
+}
+
+.account-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 12px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.account-menu-item:hover {
+  background: var(--color-bg-subtle);
+  color: var(--color-primary-base);
+}
+
+.logout-menu-item {
+  color: #dc2626;
+}
+
+.logout-menu-item:hover {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+/* DROPDOWN ANIMATION */
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
 .app-navbar {
   position: sticky;
   top: 0;
@@ -794,6 +993,10 @@ watch(isMobileDrawerOpen, (isOpen) => {
 
 /* Responsive Media Queries */
 @media (max-width: 640px) {
+
+    .account-dropdown {
+    display: none;
+}
   .hamburger-btn {
     display: flex;
   }
