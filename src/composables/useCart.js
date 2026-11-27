@@ -1,20 +1,48 @@
 import { ref, computed } from 'vue'
+import { api } from '../services/api'
 
-const CART_STORAGE_KEY = 'canteena_cart'
-const HOLD_STORAGE_KEY = 'canteena_hold_expires_at'
+const GUEST_CART_KEY = 'canteena_cart_guest'
+const GUEST_HOLD_KEY = 'canteena_hold_expires_at_guest'
+
+function hasCustomerSession() {
+  try {
+    const token = localStorage.getItem('canteena_token')
+    const user = JSON.parse(localStorage.getItem('canteena_user') || 'null')
+    return Boolean(token && user?.role === 'customer')
+  } catch {
+    return false
+  }
+}
+
+function readGuestCart() {
+  try {
+    return JSON.parse(localStorage.getItem(GUEST_CART_KEY) || '[]')
+  } catch {
+    return []
+  }
+}
+
+function readGuestHold() {
+  const raw = localStorage.getItem(GUEST_HOLD_KEY)
+  return raw ? Number(raw) : null
+}
 
 // Shared module-level reactive state
-const items = ref(JSON.parse(localStorage.getItem(CART_STORAGE_KEY) || '[]'))
-const holdExpiresAt = ref(localStorage.getItem(HOLD_STORAGE_KEY) ? Number(localStorage.getItem(HOLD_STORAGE_KEY)) : null)
+const items = ref(hasCustomerSession() ? [] : readGuestCart())
+const holdExpiresAt = ref(readGuestHold())
+const isCartSyncing = ref(false)
 let timerInterval = null
 
 export function useCart() {
   const itemCount = computed(() =>
-    items.value.reduce((total, item) => total + (item.quantity || 0), 0)
+    items.value.reduce((total, item) => total + (item.quantity || 0), 0),
   )
 
   const subtotal = computed(() =>
-    items.value.reduce((total, item) => total + (Number(item.price || 0) * (item.quantity || 0)), 0)
+    items.value.reduce(
+      (total, item) => total + Number(item.price || 0) * (item.quantity || 0),
+      0,
+    ),
   )
 
   const formattedSubtotal = computed(() => {
@@ -27,89 +55,241 @@ export function useCart() {
 
   const isEmpty = computed(() => items.value.length === 0)
 
+  function saveGuestCart() {
+    localStorage.setItem(GUEST_CART_KEY, JSON.stringify(items.value))
+  }
+
+  function applyServerCart(data) {
+    if (!data || !Array.isArray(data.items)) return
+    items.value = data.items.map((it) => ({
+      ...it,
+      price: Number(it.price || 0),
+      quantity: Number(it.quantity || 1),
+      custom_notes: it.custom_notes || '',
+      image_url: it.image_url || '',
+      emoji: it.emoji || '',
+    }))
+  }
+
   /**
-   * Persist items array to localStorage
+   * Fetch persisted cart for the authenticated customer
    */
-  function saveCart() {
-    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items.value))
+  async function fetchServerCart() {
+    if (!hasCustomerSession()) return
+    isCartSyncing.value = true
+    try {
+      const res = await api.get('/customer/cart')
+      applyServerCart(res.data)
+    } catch {
+      // Keep current state if backend unreachable
+    } finally {
+      isCartSyncing.value = false
+    }
+  }
+
+  /**
+   * Merge guest items (if any) and hydrate authenticated customer's server cart
+   */
+  async function syncCartOnLogin() {
+    if (!hasCustomerSession()) return
+    const guestItems = readGuestCart()
+    const guestHold = readGuestHold()
+
+    isCartSyncing.value = true
+    try {
+      if (guestItems.length > 0) {
+        const res = await api.post('/customer/cart/merge', {
+          items: guestItems.map((i) => ({
+            menu_item_id: i.menu_item_id,
+            quantity: i.quantity,
+            custom_notes: i.custom_notes || '',
+          })),
+        })
+        localStorage.removeItem(GUEST_CART_KEY)
+        localStorage.removeItem(GUEST_HOLD_KEY)
+        applyServerCart(res.data)
+
+        if (!holdExpiresAt.value && guestHold && guestHold > Date.now()) {
+          holdExpiresAt.value = guestHold
+        }
+      } else {
+        const res = await api.get('/customer/cart')
+        applyServerCart(res.data)
+      }
+    } catch {
+      // Fallback gracefully if network fails
+    } finally {
+      isCartSyncing.value = false
+      syncHoldTimer()
+    }
+  }
+
+  /**
+   * Switch back to the guest cart on logout without erasing the customer's server cart
+   */
+  function resetToGuestCart() {
+    items.value = readGuestCart()
+    holdExpiresAt.value = readGuestHold()
+    syncHoldTimer()
   }
 
   /**
    * Add a menu item to the cart with optional customization notes
    */
-  function addItem(menuItem, quantity = 1, customNotes = '') {
+  async function addItem(menuItem, quantity = 1, customNotes = '') {
     const cleanNotes = (customNotes || '').trim()
+    const qty = Math.max(1, Number(quantity) || 1)
+    const prevItems = items.value.map((i) => ({ ...i }))
 
-    // Find if the exact same item with the same customization note already exists
     const existingIndex = items.value.findIndex(
-      (i) => i.menu_item_id === menuItem.id && (i.custom_notes || '').trim() === cleanNotes
+      (i) => i.menu_item_id === menuItem.id && (i.custom_notes || '').trim() === cleanNotes,
     )
 
     if (existingIndex > -1) {
-      items.value[existingIndex].quantity += quantity
+      items.value[existingIndex].quantity += qty
     } else {
       items.value.push({
         id: `${menuItem.id}-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         menu_item_id: menuItem.id,
         name: menuItem.name,
         price: Number(menuItem.price),
-        quantity: Math.max(1, quantity),
+        quantity: qty,
         custom_notes: cleanNotes,
         image_url: menuItem.image_url || '',
+        emoji: menuItem.emoji || '',
         category_name: menuItem.category?.name || '',
       })
     }
 
-    saveCart()
+    if (!hasCustomerSession()) {
+      saveGuestCart()
+      return
+    }
+
+    try {
+      const res = await api.post('/customer/cart/items', {
+        menu_item_id: menuItem.id,
+        quantity: qty,
+        custom_notes: cleanNotes,
+      })
+      applyServerCart(res.data)
+    } catch (err) {
+      items.value = prevItems
+      throw err
+    }
   }
 
   /**
    * Update quantity of a cart item
    */
-  function updateQuantity(cartItemId, newQuantity) {
+  async function updateQuantity(cartItemId, newQuantity) {
     const qty = Number(newQuantity)
     if (qty <= 0) {
-      removeItem(cartItemId)
+      await removeItem(cartItemId)
       return
     }
 
+    const prevItems = items.value.map((i) => ({ ...i }))
     const item = items.value.find((i) => i.id === cartItemId)
-    if (item) {
-      item.quantity = qty
-      saveCart()
+    if (!item) return
+
+    item.quantity = qty
+
+    if (!hasCustomerSession()) {
+      saveGuestCart()
+      return
+    }
+
+    if (typeof cartItemId !== 'number') {
+      await fetchServerCart()
+      return
+    }
+
+    try {
+      const res = await api.patch(`/customer/cart/items/${cartItemId}`, { quantity: qty })
+      applyServerCart(res.data)
+    } catch {
+      items.value = prevItems
     }
   }
 
   /**
    * Update customization notes for an existing cart item
    */
-  function updateNotes(cartItemId, newNotes) {
+  async function updateNotes(cartItemId, newNotes) {
+    const prevItems = items.value.map((i) => ({ ...i }))
     const item = items.value.find((i) => i.id === cartItemId)
-    if (item) {
-      item.custom_notes = (newNotes || '').trim()
-      saveCart()
+    if (!item) return
+
+    const cleanNotes = (newNotes || '').trim()
+    item.custom_notes = cleanNotes
+
+    if (!hasCustomerSession()) {
+      saveGuestCart()
+      return
+    }
+
+    if (typeof cartItemId !== 'number') {
+      await fetchServerCart()
+      return
+    }
+
+    try {
+      const res = await api.patch(`/customer/cart/items/${cartItemId}`, {
+        custom_notes: cleanNotes,
+      })
+      applyServerCart(res.data)
+    } catch {
+      items.value = prevItems
     }
   }
 
   /**
    * Remove a single item from the cart
    */
-  function removeItem(cartItemId) {
+  async function removeItem(cartItemId) {
+    const prevItems = items.value.map((i) => ({ ...i }))
     items.value = items.value.filter((i) => i.id !== cartItemId)
-    saveCart()
 
     if (items.value.length === 0) {
       clearHold()
     }
+
+    if (!hasCustomerSession()) {
+      saveGuestCart()
+      return
+    }
+
+    if (typeof cartItemId !== 'number') {
+      await fetchServerCart()
+      return
+    }
+
+    try {
+      const res = await api.delete(`/customer/cart/items/${cartItemId}`)
+      applyServerCart(res.data)
+    } catch {
+      items.value = prevItems
+    }
   }
 
   /**
-   * Empty the entire cart
+   * Empty the active cart
    */
-  function clearCart() {
+  async function clearCart() {
     items.value = []
-    saveCart()
     clearHold()
+
+    if (!hasCustomerSession()) {
+      localStorage.removeItem(GUEST_CART_KEY)
+      return
+    }
+
+    try {
+      await api.delete('/customer/cart')
+    } catch {
+      // Already cleared locally
+    }
   }
 
   /**
@@ -152,7 +332,9 @@ export function useCart() {
   function startHold(minutes = 10) {
     const expires = Date.now() + minutes * 60 * 1000
     holdExpiresAt.value = expires
-    localStorage.setItem(HOLD_STORAGE_KEY, String(expires))
+    if (!hasCustomerSession()) {
+      localStorage.setItem(GUEST_HOLD_KEY, String(expires))
+    }
     updateSecondsRemaining()
 
     if (timerInterval) clearInterval(timerInterval)
@@ -162,15 +344,22 @@ export function useCart() {
   function clearHold() {
     holdExpiresAt.value = null
     secondsRemaining.value = 0
-    localStorage.removeItem(HOLD_STORAGE_KEY)
+    localStorage.removeItem(GUEST_HOLD_KEY)
     if (timerInterval) {
       clearInterval(timerInterval)
       timerInterval = null
     }
   }
 
-  // Initialize countdown if an active hold exists in storage
-  if (holdExpiresAt.value && !timerInterval) {
+  function syncHoldTimer() {
+    if (timerInterval) {
+      clearInterval(timerInterval)
+      timerInterval = null
+    }
+    if (!holdExpiresAt.value) {
+      secondsRemaining.value = 0
+      return
+    }
     updateSecondsRemaining()
     if (secondsRemaining.value > 0) {
       timerInterval = setInterval(updateSecondsRemaining, 1000)
@@ -179,18 +368,26 @@ export function useCart() {
     }
   }
 
+  if (holdExpiresAt.value && !timerInterval) {
+    syncHoldTimer()
+  }
+
   return {
     items,
     itemCount,
     subtotal,
     formattedSubtotal,
     isEmpty,
+    isCartSyncing,
     addItem,
     updateQuantity,
     updateNotes,
     removeItem,
     clearCart,
     getCheckoutItems,
+    fetchServerCart,
+    syncCartOnLogin,
+    resetToGuestCart,
 
     // Hold Timer
     holdExpiresAt,
@@ -203,4 +400,3 @@ export function useCart() {
 }
 
 export default useCart
-

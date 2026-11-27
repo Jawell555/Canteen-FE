@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseAlert from '../components/common/BaseAlert.vue'
 import BaseButton from '../components/common/BaseButton.vue'
@@ -8,7 +8,7 @@ import { useAuth } from '../composables/useAuth'
 import { api } from '../services/api'
 
 const router = useRouter()
-const { user } = useAuth()
+const { user, isAuthenticated } = useAuth()
 const {
   items,
   isEmpty,
@@ -30,12 +30,21 @@ const gcashRef = ref('')
 const isSubmitting = ref(false)
 const errorMessage = ref('')
 
-onMounted(() => {
-  if (user.value) {
-    if (!customerName.value && user.value.name) customerName.value = user.value.name
-    if (!customerPhone.value && user.value.phone_number) customerPhone.value = user.value.phone_number
-  }
+watch(
+  user,
+  (currentUser) => {
+    if (!currentUser) return
+    if (!customerName.value && currentUser.name) {
+      customerName.value = currentUser.name
+    }
+    if (!customerPhone.value && currentUser.phone_number) {
+      customerPhone.value = currentUser.phone_number
+    }
+  },
+  { immediate: true },
+)
 
+onMounted(() => {
   if (!isHoldActive.value && !isEmpty.value) {
     startHold(10)
   }
@@ -146,13 +155,19 @@ async function handlePlaceOrder() {
 
         <form class="checkout-grid" @submit.prevent="handlePlaceOrder">
           <section class="checkout-form-card">
-            <h2 class="section-title">Customer Details</h2>
+            <div class="section-header-row">
+              <h2 class="section-title">Customer Details</h2>
+              <span v-if="isAuthenticated && user" class="autofill-pill">
+                ✓ Auto-filled from account
+              </span>
+            </div>
             <div class="form-group">
               <label for="customerName" class="form-label">Full Name / Order Tag *</label>
               <input
                 id="customerName"
                 v-model="customerName"
                 type="text"
+                autocomplete="name"
                 class="form-input"
                 placeholder="e.g., Juan Dela Cruz"
                 required
@@ -165,6 +180,8 @@ async function handlePlaceOrder() {
                 id="customerPhone"
                 v-model="customerPhone"
                 type="tel"
+                autocomplete="tel"
+                inputmode="tel"
                 class="form-input"
                 placeholder="e.g., 09171234567"
               />
@@ -334,6 +351,29 @@ async function handlePlaceOrder() {
   box-shadow: var(--shadow-subtle);
 }
 
+.section-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+}
+
+.section-header-row .section-title {
+  margin-bottom: 0;
+}
+
+.autofill-pill {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--status-ready-text);
+  background-color: var(--status-ready-bg);
+  border: 1px solid rgba(21, 128, 61, 0.2);
+  padding: 2px 10px;
+  border-radius: var(--radius-full);
+}
+
 .section-title {
   font-size: 17px;
   font-weight: 700;
@@ -365,7 +405,7 @@ async function handlePlaceOrder() {
   padding: 10px 14px;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border-default);
-  font-size: 15px;
+  font-size: 16px;
   outline: none;
   background-color: var(--color-bg-subtle);
   transition: border-color 0.15s ease;

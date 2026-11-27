@@ -74,17 +74,17 @@ async function handleLogin() {
 
     const role = data?.user?.role
     if (role === 'staff') {
-      await logout()
+      await logout({ clearCartOnLogout: false })
       errorMessage.value = 'This is a Staff account. Please log in through the Staff Portal.'
       return
     }
     if (role === 'admin') {
-      await logout()
+      await logout({ clearCartOnLogout: false })
       errorMessage.value = 'This is an Administrator account. Please log in through the Admin Portal.'
       return
     }
     if (role !== 'customer') {
-      await logout()
+      await logout({ clearCartOnLogout: false })
       errorMessage.value = 'Access restricted. Please log in through the appropriate portal.'
       return
     }

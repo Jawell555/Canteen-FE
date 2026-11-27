@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import MenuCatalog from '../components/menu/MenuCatalog.vue'
 import ItemCustomizerModal from '../components/menu/ItemCustomizerModal.vue'
@@ -9,8 +9,8 @@ import { api } from '../services/api'
 
 const router = useRouter()
 const { addItem, itemCount, formattedSubtotal } = useCart()
-const { user } = useAuth()
-const isLoggedIn = computed(() => !!user.value)
+const { user, isCustomer, isAuthenticated } = useAuth()
+const canFavorite = computed(() => isAuthenticated.value && isCustomer.value)
 const favoriteIds = ref(new Set())
 
 const activeCategory = ref('all')
@@ -52,8 +52,7 @@ async function fetchMenuData() {
       api.get('/menu/items').catch(() => null),
     ]
 
-    const token = localStorage.getItem('canteena_token')
-    if (token) {
+    if (canFavorite.value) {
       promises.push(api.get('/customer/favorites').catch(() => null))
     }
 
@@ -62,6 +61,8 @@ async function fetchMenuData() {
     if (favRes?.data?.favorites) {
       const ids = favRes.data.favorites.map((f) => f.id || f.menu_item_id)
       favoriteIds.value = new Set(ids)
+    } else if (!canFavorite.value) {
+      favoriteIds.value = new Set()
     }
 
     if (catRes?.data?.categories && catRes.data.categories.length > 0) {
@@ -80,6 +81,7 @@ async function fetchMenuData() {
         name: item.name,
         desc: item.desc || item.description || '',
         price: Number(item.price),
+        image_url: item.image_url || '',
         emoji: getItemEmoji(item),
         stock: item.stock ?? item.current_stock ?? 0,
         category: item.category || 'meals',
@@ -94,8 +96,38 @@ async function fetchMenuData() {
   }
 }
 
+async function syncFavoritesForUser() {
+  if (!canFavorite.value) {
+    favoriteIds.value = new Set()
+    menuItems.value.forEach((item) => {
+      item.isFavorite = false
+    })
+    return
+  }
+
+  try {
+    const favRes = await api.get('/customer/favorites')
+    const ids = (favRes?.data?.favorites || []).map((f) => f.id || f.menu_item_id)
+    favoriteIds.value = new Set(ids)
+    menuItems.value.forEach((item) => {
+      item.isFavorite = favoriteIds.value.has(item.id)
+    })
+  } catch {
+    // Keep current state if offline
+  }
+}
+
+watch(
+  () => user.value?.id,
+  () => {
+    if (menuItems.value.length > 0) {
+      syncFavoritesForUser()
+    }
+  },
+)
+
 async function handleToggleFavorite(item) {
-  if (!user.value) return
+  if (!canFavorite.value) return
 
   const willBeFavorite = !item.isFavorite
   item.isFavorite = willBeFavorite
@@ -147,8 +179,12 @@ function handleCloseCustomizer() {
   selectedItemForModal.value = null
 }
 
-function handleAddToCartFromModal({ item, quantity, customNotes }) {
-  addItem(item, quantity, customNotes)
+async function handleAddToCartFromModal({ item, quantity, customNotes }) {
+  try {
+    await addItem(item, quantity, customNotes)
+  } catch (err) {
+    console.error('Failed to add item to cart:', err)
+  }
 }
 
 function goToCheckout() {
@@ -170,7 +206,7 @@ function goToCheckout() {
         :items="filteredItems"
         :active-category="activeCategory"
         :loading="isLoading"
-        :is-logged-in="isLoggedIn"
+        :is-logged-in="canFavorite"
         @select-category="activeCategory = $event"
         @customize-item="handleOpenCustomizer"
         @toggle-favorite="handleToggleFavorite"

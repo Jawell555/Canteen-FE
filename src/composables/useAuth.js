@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
 import { api, ApiError } from '../services/api'
+import { useCart } from './useCart'
 
 // Shared module-level reactive state
 const user = ref(JSON.parse(localStorage.getItem('canteena_user') || 'null'))
@@ -31,6 +32,13 @@ export function useAuth() {
       localStorage.setItem('canteena_user', JSON.stringify(userData))
     } else {
       localStorage.removeItem('canteena_user')
+    }
+
+    const { syncCartOnLogin, resetToGuestCart } = useCart()
+    if (userData?.role === 'customer' && tokenString) {
+      syncCartOnLogin()
+    } else if (!userData) {
+      resetToGuestCart()
     }
   }
 
@@ -78,7 +86,7 @@ export function useAuth() {
   /**
    * Sign out and clear active session
    */
-  async function logout() {
+  async function logout({ clearCartOnLogout = true } = {}) {
     isLoading.value = true
     try {
       if (token.value) {
@@ -88,6 +96,10 @@ export function useAuth() {
       }
     } finally {
       setSession(null, null)
+      if (clearCartOnLogout) {
+        localStorage.removeItem('canteena_last_order')
+        localStorage.removeItem('canteena_order_history')
+      }
       isLoading.value = false
     }
   }

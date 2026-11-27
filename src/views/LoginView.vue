@@ -77,11 +77,11 @@ async function handleLogin() {
       if (role === 'staff') {
         router.push('/staff')
       } else if (role === 'admin') {
-        await logout()
+        await logout({ clearCartOnLogout: false })
         errorMessage.value =
           'This is an Administrator account. Please log in through the Admin Portal.'
       } else {
-        await logout()
+        await logout({ clearCartOnLogout: false })
         errorMessage.value =
           'Access restricted. Customer accounts cannot access the Staff Portal.'
       }
@@ -89,11 +89,11 @@ async function handleLogin() {
       if (role === 'admin') {
         router.push('/admin')
       } else if (role === 'staff') {
-        await logout()
+        await logout({ clearCartOnLogout: false })
         errorMessage.value =
           'This is a Staff account. Please log in through the Staff Portal.'
       } else {
-        await logout()
+        await logout({ clearCartOnLogout: false })
         errorMessage.value =
           'Access restricted. Customer accounts cannot access the Admin Portal.'
       }

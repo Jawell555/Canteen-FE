@@ -211,8 +211,8 @@ defineEmits(['select-category', 'customize-item', 'quick-add', 'toggle-favorite'
   position: absolute;
   top: 10px;
   left: 10px;
-  width: 38px;
-  height: 38px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
   border: 1px solid var(--color-border-subtle);
   background: var(--color-bg-surface);
@@ -223,14 +223,22 @@ defineEmits(['select-category', 'customize-item', 'quick-add', 'toggle-favorite'
   font-size: 18px;
   cursor: pointer;
   z-index: 2;
-  transition: transform 0.15s ease, background-color 0.15s ease;
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1), background-color 180ms ease;
   padding: 0;
   line-height: 1;
+  touch-action: manipulation;
+  user-select: none;
 }
 
-.favorite-heart-btn:hover {
-  transform: scale(1.15);
-  background: #ffffff;
+.favorite-heart-btn:active {
+  transform: scale(0.92);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .favorite-heart-btn:hover {
+    transform: scale(1.1);
+    background: #ffffff;
+  }
 }
 
 .item-details {

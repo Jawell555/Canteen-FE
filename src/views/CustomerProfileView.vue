@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseButton from '../components/common/BaseButton.vue'
 import BaseBadge from '../components/common/BaseBadge.vue'
@@ -11,8 +11,8 @@ import { useAuth } from '../composables/useAuth'
 import { api } from '../services/api'
 
 const router = useRouter()
-const { addItem } = useCart()
-const { user } = useAuth()
+const { items: cartItems, addItem, isHoldActive, startHold } = useCart()
+const { user, token, isAuthenticated } = useAuth()
 const isCustomer = computed(() => user.value?.role === 'customer')
 const isStaff = computed(() => user.value?.role === 'staff')
 const isAdmin = computed(() => user.value?.role === 'admin')
@@ -40,93 +40,196 @@ const isFeedbackModalOpen = ref(false)
 const selectedOrderForFeedback = ref(null)
 const isReceiptModalOpen = ref(false)
 const selectedOrderForReceipt = ref(null)
-const reorderSuccessMsg = ref('')
+const toastMessage = ref('')
+const toastVariant = ref('success')
+const isLoadingProfile = ref(false)
+let toastTimer = null
+let redirectTimer = null
 
-const pastOrders = ref([
-  {
-    order_uuid: 'f47ac10b-58cc-4372-a567-0e02b2c3d479',
-    queue_number: '#042',
-    date: 'Nov 13, 2026 • 12:15 PM',
-    status: 'completed',
-    total: 85.0,
-    payment_method: 'GCash',
-    has_feedback: false,
-    items: [
-      { id: 1, name: 'Chicken Adobo with Rice', price: 85, quantity: 1, custom_notes: 'Penge sabaw' },
-    ],
-  },
-])
-
+const pastOrders = ref([])
 const favoriteItems = ref([])
+const liveMenuItems = ref([])
 
-onMounted(async () => {
-  try {
-    const savedHistory = JSON.parse(localStorage.getItem('canteena_order_history') || '[]')
-    if (savedHistory.length > 0) {
-      pastOrders.value = savedHistory
+const liveMenuMap = computed(() => {
+  const map = new Map()
+  for (const item of liveMenuItems.value) {
+    map.set(item.id, item)
+  }
+  return map
+})
+
+const cartQtyMap = computed(() => {
+  const map = new Map()
+  for (const item of cartItems.value) {
+    map.set(item.menu_item_id, (map.get(item.menu_item_id) || 0) + (item.quantity || 0))
+  }
+  return map
+})
+
+const completedOrdersCount = computed(
+  () => pastOrders.value.filter((o) => o.status === 'completed').length,
+)
+
+function showToast(message, variant = 'success', durationMs = 2500) {
+  toastMessage.value = message
+  toastVariant.value = variant
+  if (toastTimer) clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => {
+    toastMessage.value = ''
+  }, durationMs)
+}
+
+function getOrderStatusMeta(status) {
+  switch (status) {
+    case 'pending':
+      return { variant: 'pending', label: 'Pending' }
+    case 'preparing':
+      return { variant: 'preparing', label: 'Preparing' }
+    case 'ready':
+      return { variant: 'ready', label: 'Ready for Pickup' }
+    case 'cancelled':
+      return { variant: 'danger', label: 'Cancelled' }
+    case 'completed':
+    default:
+      return { variant: 'completed', label: 'Completed' }
+  }
+}
+
+function getLiveItemStock(item) {
+  const menuId = item.menu_item_id || item.id
+  const live = liveMenuMap.value.get(menuId)
+  const rawStock = live ? (live.stock ?? live.current_stock ?? 0) : (item.current_stock ?? item.stock ?? 0)
+  const stock = Number(rawStock)
+  const isSoldOut = live
+    ? Boolean(live.is_sold_out || live.isSoldOut || stock <= 0)
+    : Boolean(item.is_sold_out || item.isSoldOut || stock <= 0)
+  const inCart = cartQtyMap.value.get(menuId) || 0
+  const remaining = isSoldOut ? 0 : Math.max(0, stock - inCart)
+  const price = live ? Number(live.price) : Number(item.price || item.unit_price || 0)
+
+  return {
+    menuId,
+    stock,
+    isSoldOut,
+    remaining,
+    price,
+  }
+}
+
+function getOrderStockSummary(order) {
+  const orderItems = order.items || []
+  let availableCount = 0
+  const unavailableNames = []
+  const cappedNames = []
+
+  for (const item of orderItems) {
+    const info = getLiveItemStock(item)
+    if (info.remaining <= 0) {
+      unavailableNames.push(item.name)
+    } else {
+      availableCount += 1
+      if (info.remaining < item.quantity) {
+        cappedNames.push(`${item.name} (${info.remaining} left)`)
+      }
     }
-  } catch {
-    // fallback
   }
 
-  const token = localStorage.getItem('canteena_token')
-  if (token) {
-    try {
-      const ordersRes = await api.get('/customer/orders')
-      const backendOrders = ordersRes.data?.orders || []
-      if (backendOrders.length > 0) {
-        pastOrders.value = backendOrders.map((bo) => ({
-          order_uuid: bo.order_uuid || bo.uuid,
-          queue_number: bo.queue_number,
-          date: bo.date,
-          created_at: bo.created_at,
-          customer_name: bo.customer_name,
-          status: bo.status,
-          total: Number(bo.total || bo.total_amount || 0),
-          payment_method: bo.payment_method,
-          payment: bo.payment,
-          has_feedback: Boolean(bo.has_feedback),
-          items: (bo.items || []).map((it) => ({
-            id: it.id,
-            name: it.name,
-            price: Number(it.price || it.unit_price || 0),
-            quantity: Number(it.quantity || 1),
-            custom_notes: it.custom_notes || '',
-          })),
-        }))
-      }
-    } catch {
-      // fallback to localStorage
+  return {
+    canReorder: availableCount > 0,
+    allAvailable: unavailableNames.length === 0 && cappedNames.length === 0,
+    unavailableNames,
+    cappedNames,
+  }
+}
+
+async function fetchCustomerData() {
+  if (!token.value || !isCustomer.value) {
+    pastOrders.value = []
+    favoriteItems.value = []
+    return
+  }
+
+  isLoadingProfile.value = true
+  try {
+    const [ordersRes, favRes, menuRes] = await Promise.all([
+      api.get('/customer/orders').catch(() => null),
+      api.get('/customer/favorites').catch(() => null),
+      api.get('/menu/items').catch(() => null),
+    ])
+
+    if (menuRes?.data?.items) {
+      liveMenuItems.value = menuRes.data.items
     }
 
-    try {
-      const favRes = await api.get('/customer/favorites')
-      const favs = favRes.data?.favorites || favRes.data?.items || []
+    if (ordersRes?.data?.orders) {
+      pastOrders.value = ordersRes.data.orders.map((bo) => ({
+        order_uuid: bo.order_uuid || bo.uuid,
+        queue_number: bo.queue_number,
+        date: bo.date,
+        created_at: bo.created_at,
+        customer_name: bo.customer_name,
+        status: bo.status || 'pending',
+        total: Number(bo.total || bo.total_amount || 0),
+        payment_method: bo.payment_method,
+        payment: bo.payment,
+        has_feedback: Boolean(bo.has_feedback),
+        items: (bo.items || []).map((it) => ({
+          id: it.menu_item_id || it.id,
+          menu_item_id: it.menu_item_id || it.id,
+          name: it.name,
+          price: Number(it.price || it.unit_price || 0),
+          quantity: Number(it.quantity || 1),
+          custom_notes: it.custom_notes || '',
+          current_stock: Number(it.current_stock ?? 0),
+          is_sold_out: Boolean(it.is_sold_out),
+          is_available: Boolean(it.is_available),
+        })),
+      }))
+    }
+
+    if (favRes?.data?.favorites || favRes?.data?.items) {
+      const favs = favRes.data.favorites || favRes.data.items || []
       favoriteItems.value = favs.map((it) => ({
         id: it.id || it.menu_item_id,
+        menu_item_id: it.menu_item_id || it.id,
         name: it.name,
         emoji: it.emoji || '🍽️',
         price: Number(it.price),
         category: it.category_name || it.category || 'Meals',
         desc: it.desc || it.description || '',
+        stock: Number(it.stock ?? it.current_stock ?? 0),
+        current_stock: Number(it.current_stock ?? it.stock ?? 0),
         isSoldOut: Boolean(it.is_sold_out || it.isSoldOut),
       }))
-    } catch {
+    } else {
       favoriteItems.value = []
     }
-  } else {
-    favoriteItems.value = []
+  } finally {
+    isLoadingProfile.value = false
   }
+}
+
+watch(
+  () => [user.value?.id, user.value?.role],
+  () => {
+    fetchCustomerData()
+  },
+)
+
+onMounted(() => {
+  fetchCustomerData()
+})
+
+onUnmounted(() => {
+  if (toastTimer) clearTimeout(toastTimer)
+  if (redirectTimer) clearTimeout(redirectTimer)
 })
 
 async function handleRemoveFavorite(fav) {
   const prevList = [...favoriteItems.value]
   favoriteItems.value = favoriteItems.value.filter((item) => item.id !== fav.id)
 
-  reorderSuccessMsg.value = `Removed ${fav.name} from favorites`
-  setTimeout(() => {
-    reorderSuccessMsg.value = ''
-  }, 2000)
+  showToast(`Removed ${fav.name} from favorites`)
 
   try {
     await api.post('/customer/favorites/toggle', {
@@ -138,24 +241,97 @@ async function handleRemoveFavorite(fav) {
   }
 }
 
-function handleReorder(order) {
-  order.items.forEach((item) => {
-    addItem(item, item.quantity, item.custom_notes)
-  })
+async function handleReorder(order) {
+  // Refresh live menu stock before adding items so we never oversell
+  try {
+    const menuRes = await api.get('/menu/items')
+    if (menuRes?.data?.items) {
+      liveMenuItems.value = menuRes.data.items
+    }
+  } catch {
+    // Proceed with latest fetched stock snapshot
+  }
 
-  reorderSuccessMsg.value = `Added items from ${order.queue_number} to your cart!`
-  setTimeout(() => {
-    reorderSuccessMsg.value = ''
+  let addedUnits = 0
+  const skippedItems = []
+  const cappedItems = []
+
+  for (const item of order.items || []) {
+    const info = getLiveItemStock(item)
+    if (!info.menuId || info.remaining <= 0) {
+      skippedItems.push(item.name)
+      continue
+    }
+
+    const qtyToAdd = Math.min(item.quantity, info.remaining)
+    if (qtyToAdd < item.quantity) {
+      cappedItems.push(`${item.name} (${qtyToAdd} of ${item.quantity})`)
+    }
+
+    try {
+      await addItem(
+        {
+          id: info.menuId,
+          name: item.name,
+          price: info.price,
+        },
+        qtyToAdd,
+        item.custom_notes,
+      )
+      addedUnits += qtyToAdd
+    } catch {
+      skippedItems.push(item.name)
+    }
+  }
+
+  if (addedUnits === 0) {
+    showToast(`Sorry, all items in ${order.queue_number} are currently out of stock.`, 'warning', 3200)
+    return
+  }
+
+  if (!isHoldActive.value) {
+    startHold(10)
+  }
+
+  if (skippedItems.length > 0 || cappedItems.length > 0) {
+    const notes = []
+    if (skippedItems.length > 0) notes.push(`Out of stock: ${skippedItems.join(', ')}`)
+    if (cappedItems.length > 0) notes.push(`Adjusted stock: ${cappedItems.join(', ')}`)
+    showToast(`Added available items from ${order.queue_number}. ${notes.join(' • ')}`, 'warning', 3500)
+  } else {
+    showToast(`Added items from ${order.queue_number} to your cart!`, 'success', 1500)
+  }
+
+  if (redirectTimer) clearTimeout(redirectTimer)
+  redirectTimer = setTimeout(() => {
     router.push('/checkout')
-  }, 800)
+  }, 850)
 }
 
-function handleAddFavoriteToCart(item) {
-  addItem(item, 1)
-  reorderSuccessMsg.value = `Added ${item.name} to cart!`
-  setTimeout(() => {
-    reorderSuccessMsg.value = ''
-  }, 2000)
+async function handleAddFavoriteToCart(fav) {
+  const info = getLiveItemStock(fav)
+  if (info.remaining <= 0) {
+    showToast(`${fav.name} has no available stock remaining.`, 'warning')
+    return
+  }
+
+  try {
+    await addItem(
+      {
+        id: info.menuId,
+        name: fav.name,
+        price: info.price,
+        emoji: fav.emoji,
+      },
+      1,
+    )
+    if (!isHoldActive.value) {
+      startHold(10)
+    }
+    showToast(`Added ${fav.name} to cart!`)
+  } catch (err) {
+    showToast(err.message || `Could not add ${fav.name} to cart.`, 'warning')
+  }
 }
 
 function openReceiptModal(order) {
@@ -267,14 +443,24 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
   <!-- Customer-only order statistics -->
   <div v-if="isCustomer" class="profile-stat-box">
     <span class="stat-number tabular-nums">
-      {{ pastOrders.length }}
+      {{ completedOrdersCount }}
     </span>
     <span class="stat-label">Orders Completed</span>
   </div>
 </header>
 
+<!-- Unauthenticated Guest Notice -->
+<section v-if="!isAuthenticated" class="empty-favorites-box">
+  <span class="empty-fav-icon" aria-hidden="true">🔐</span>
+  <h2 class="empty-fav-title">Sign in to view your profile</h2>
+  <p class="empty-fav-sub">Log in as a customer to see your saved favorite meals and order history.</p>
+  <BaseButton variant="primary" size="md" @click="router.push('/')">
+    Browse Today's Menu
+  </BaseButton>
+</section>
+
 <!-- General Information for Staff and Admin -->
-<section v-if="!isCustomer" class="general-info-section">
+<section v-else-if="!isCustomer" class="general-info-section">
 
   <div class="section-heading">
     <h2>General Information</h2>
@@ -328,136 +514,215 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
   </div>
 </section>
 
-    <!-- Notification Toast -->
-    <Transition name="fade">
-      <div v-if="reorderSuccessMsg" class="reorder-toast">
-        ✓ {{ reorderSuccessMsg }}
-      </div>
-    </Transition>
-
-    <!-- Tabs Navigation -->
-    <nav
-  v-if="isCustomer"
-  class="profile-tabs"
-  role="tablist"
-  aria-label="Customer Profile Navigation"
->
-</nav>
-
-    <!-- Section A: Order History -->
-    <section v-if="activeTab === 'history'" class="tab-content">
-      <div v-if="pastOrders.length === 0" class="empty-state">
-        <p>No past orders yet. Head to the menu to place your first meal!</p>
-      </div>
-
-      <div class="orders-list">
-        <article
-          v-for="order in pastOrders"
-          :key="order.order_uuid"
-          class="order-history-card"
+    <template v-if="isCustomer">
+      <!-- Notification Toast -->
+      <Transition name="fade">
+        <div
+          v-if="toastMessage"
+          class="reorder-toast"
+          :class="{ warning: toastVariant === 'warning' }"
+          role="status"
+          aria-live="polite"
         >
-          <header class="order-card-header">
-            <div>
-              <span class="order-queue-badge tabular-nums">{{ order.queue_number }}</span>
-              <time class="order-date-text tabular-nums">{{ order.date }}</time>
-            </div>
-            <BaseBadge variant="completed" size="md">Completed</BaseBadge>
-          </header>
+          {{ toastVariant === 'warning' ? '⚠️' : '✓' }} {{ toastMessage }}
+        </div>
+      </Transition>
 
-          <div class="order-items-summary">
-            <div
-              v-for="(item, idx) in order.items"
-              :key="idx"
-              class="item-line"
-            >
-              <span>{{ item.quantity }}x {{ item.name }}</span>
-              <span v-if="item.custom_notes" class="item-note">({{ item.custom_notes }})</span>
-            </div>
-          </div>
-
-          <footer class="order-card-footer">
-            <div class="order-cost-info">
-              <span class="cost-label">Total:</span>
-              <span class="cost-value tabular-nums">₱{{ order.total.toFixed(2) }}</span>
-              <span class="payment-method-text">({{ order.payment_method }})</span>
-            </div>
-
-            <div class="card-action-btns">
-              <BaseButton
-                variant="outline"
-                size="sm"
-                @click="openReceiptModal(order)"
-              >
-                🧾 Receipt
-              </BaseButton>
-
-              <BaseButton
-                v-if="!order.has_feedback"
-                variant="outline"
-                size="sm"
-                @click="openFeedbackModal(order)"
-              >
-                ★ Rate Meal
-              </BaseButton>
-              <BaseBadge v-else variant="ready" size="sm">
-                ✓ Reviewed
-              </BaseBadge>
-
-              <BaseButton
-                variant="primary"
-                size="sm"
-                @click="handleReorder(order)"
-              >
-                ↻ 1-Click Reorder
-              </BaseButton>
-            </div>
-          </footer>
-        </article>
-      </div>
-    </section>
-
-    <!-- Section B: Favorites -->
-    <section v-else-if="activeTab === 'favorites'" class="tab-content">
-      <div v-if="favoriteItems.length === 0" class="empty-favorites-box">
-        <span class="empty-fav-icon" aria-hidden="true">❤️</span>
-        <h3 class="empty-fav-title">No Favorite Meals Yet</h3>
-        <p class="empty-fav-sub">Heart your favorite canteen dishes on the menu to quickly find and order them here anytime!</p>
-        <BaseButton variant="primary" size="md" @click="router.push('/')">
-          Explore Menu
-        </BaseButton>
-      </div>
-
-      <div v-else class="favorites-grid">
-        <article
-          v-for="fav in favoriteItems"
-          :key="fav.id"
-          class="favorite-card"
+      <!-- Tabs Navigation -->
+      <nav
+        class="profile-tabs"
+        role="tablist"
+        aria-label="Customer Profile Navigation"
+      >
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'history'"
+          class="tab-btn"
+          :class="{ active: activeTab === 'history' }"
+          @click="activeTab = 'history'"
         >
-          <button
-            type="button"
-            class="unheart-btn"
-            title="Remove from favorites"
-            aria-label="Remove from favorites"
-            @click="handleRemoveFavorite(fav)"
-          >
-            ❤️
-          </button>
-          <span class="fav-emoji" aria-hidden="true">{{ fav.emoji }}</span>
-          <div class="fav-info">
-            <h3 class="fav-name">{{ fav.name }}</h3>
-            <p class="fav-desc">{{ fav.desc }}</p>
-            <span class="fav-price tabular-nums">₱{{ fav.price.toFixed(2) }}</span>
-          </div>
-          <BaseButton
-            variant="primary"
-            size="sm"
-            @click="handleAddFavoriteToCart(fav)"
-          >
-            + Add to Cart
+          📋 Order History ({{ pastOrders.length }})
+        </button>
+        <button
+          type="button"
+          role="tab"
+          :aria-selected="activeTab === 'favorites'"
+          class="tab-btn"
+          :class="{ active: activeTab === 'favorites' }"
+          @click="activeTab = 'favorites'"
+        >
+          ❤️ Favorite Meals ({{ favoriteItems.length }})
+        </button>
+      </nav>
+
+      <!-- Section A: Order History -->
+      <section v-if="activeTab === 'history'" class="tab-content">
+        <div v-if="isLoadingProfile" class="empty-state">
+          <p>Loading your order history...</p>
+        </div>
+
+        <div v-else-if="pastOrders.length === 0" class="empty-favorites-box">
+          <span class="empty-fav-icon" aria-hidden="true">🧾</span>
+          <h3 class="empty-fav-title">No Orders Yet</h3>
+          <p class="empty-fav-sub">Your canteen orders will appear here once you place an order while signed in.</p>
+          <BaseButton variant="primary" size="md" @click="router.push('/')">
+            Browse Today's Menu
           </BaseButton>
-        </article>
-      </div>
-    </section>
+        </div>
+
+        <div v-else class="orders-list">
+          <article
+            v-for="order in pastOrders"
+            :key="order.order_uuid"
+            class="order-history-card"
+          >
+            <header class="order-card-header">
+              <div>
+                <span class="order-queue-badge tabular-nums">{{ order.queue_number }}</span>
+                <time class="order-date-text tabular-nums">{{ order.date }}</time>
+              </div>
+              <BaseBadge :variant="getOrderStatusMeta(order.status).variant" size="md">
+                {{ getOrderStatusMeta(order.status).label }}
+              </BaseBadge>
+            </header>
+
+            <div class="order-items-summary">
+              <div
+                v-for="(item, idx) in order.items"
+                :key="idx"
+                class="item-line"
+              >
+                <span>{{ item.quantity }}x {{ item.name }}</span>
+                <span v-if="item.custom_notes" class="item-note">({{ item.custom_notes }})</span>
+                <span
+                  v-if="getLiveItemStock(item).remaining <= 0"
+                  class="item-stock-tag sold-out"
+                >
+                  Out of stock
+                </span>
+                <span
+                  v-else-if="getLiveItemStock(item).remaining < item.quantity"
+                  class="item-stock-tag low-stock tabular-nums"
+                >
+                  Only {{ getLiveItemStock(item).remaining }} left
+                </span>
+              </div>
+            </div>
+
+            <footer class="order-card-footer">
+              <div class="order-cost-info">
+                <span class="cost-label">Total:</span>
+                <span class="cost-value tabular-nums">₱{{ order.total.toFixed(2) }}</span>
+                <span class="payment-method-text">({{ order.payment_method }})</span>
+              </div>
+
+              <div class="card-action-btns">
+                <BaseButton
+                  variant="outline"
+                  size="sm"
+                  @click="openReceiptModal(order)"
+                >
+                  🧾 Receipt
+                </BaseButton>
+
+                <BaseButton
+                  v-if="order.status === 'completed' && !order.has_feedback"
+                  variant="outline"
+                  size="sm"
+                  @click="openFeedbackModal(order)"
+                >
+                  ★ Rate Meal
+                </BaseButton>
+                <BaseBadge v-else-if="order.has_feedback" variant="ready" size="sm">
+                  ✓ Reviewed
+                </BaseBadge>
+
+                <BaseButton
+                  variant="primary"
+                  size="sm"
+                  :disabled="!getOrderStockSummary(order).canReorder"
+                  @click="handleReorder(order)"
+                >
+                  {{ getOrderStockSummary(order).canReorder ? '↻ Buy Again' : 'Out of Stock' }}
+                </BaseButton>
+              </div>
+            </footer>
+          </article>
+        </div>
+      </section>
+
+      <!-- Section B: Favorites -->
+      <section v-else-if="activeTab === 'favorites'" class="tab-content">
+        <div v-if="isLoadingProfile" class="empty-state">
+          <p>Loading your favorite meals...</p>
+        </div>
+
+        <div v-else-if="favoriteItems.length === 0" class="empty-favorites-box">
+          <span class="empty-fav-icon" aria-hidden="true">❤️</span>
+          <h3 class="empty-fav-title">No Favorite Meals Yet</h3>
+          <p class="empty-fav-sub">Heart your favorite canteen dishes on the menu to quickly find and order them here anytime!</p>
+          <BaseButton variant="primary" size="md" @click="router.push('/')">
+            Explore Menu
+          </BaseButton>
+        </div>
+
+        <div v-else class="favorites-grid">
+          <article
+            v-for="fav in favoriteItems"
+            :key="fav.id"
+            class="favorite-card"
+            :class="{ 'sold-out': getLiveItemStock(fav).remaining <= 0 }"
+          >
+            <button
+              type="button"
+              class="unheart-btn"
+              title="Remove from favorites"
+              aria-label="Remove from favorites"
+              @click="handleRemoveFavorite(fav)"
+            >
+              ❤️
+            </button>
+            <div class="fav-top-row">
+              <span class="fav-emoji" aria-hidden="true">{{ fav.emoji }}</span>
+              <BaseBadge
+                v-if="getLiveItemStock(fav).isSoldOut"
+                variant="danger"
+                size="sm"
+              >
+                Sold Out
+              </BaseBadge>
+              <BaseBadge
+                v-else
+                variant="ready"
+                size="sm"
+              >
+                {{ getLiveItemStock(fav).remaining }} left
+              </BaseBadge>
+            </div>
+            <div class="fav-info">
+              <h3 class="fav-name">{{ fav.name }}</h3>
+              <p class="fav-desc">{{ fav.desc }}</p>
+              <span class="fav-price tabular-nums">₱{{ getLiveItemStock(fav).price.toFixed(2) }}</span>
+            </div>
+            <BaseButton
+              variant="primary"
+              size="sm"
+              :disabled="getLiveItemStock(fav).remaining <= 0"
+              @click="handleAddFavoriteToCart(fav)"
+            >
+              {{
+                getLiveItemStock(fav).isSoldOut
+                  ? 'Sold Out'
+                  : getLiveItemStock(fav).remaining <= 0
+                    ? 'Max in Cart'
+                    : '+ Add to Cart'
+              }}
+            </BaseButton>
+          </article>
+        </div>
+      </section>
+    </template>
 
     <!-- Feedback Rating Modal -->
     <FeedbackModal
@@ -676,8 +941,16 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
   margin-bottom: var(--space-4);
 }
 
+.reorder-toast.warning {
+  background-color: var(--status-pending-bg);
+  border-color: var(--status-pending-accent);
+  color: var(--status-pending-text);
+}
+
 .profile-tabs {
   display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
   background-color: var(--color-bg-subtle);
   padding: 4px;
   border-radius: var(--radius-full);
@@ -689,12 +962,19 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
   border: none;
   background: transparent;
   padding: 8px 18px;
+  min-height: 44px;
   border-radius: var(--radius-full);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   color: var(--color-text-secondary);
-  transition: all 0.15s ease;
+  transition: background-color 180ms cubic-bezier(0.23, 1, 0.32, 1), color 180ms ease, transform 120ms ease;
+  touch-action: manipulation;
+  user-select: none;
+}
+
+.tab-btn:active {
+  transform: scale(0.97);
 }
 
 .tab-btn.active {
@@ -750,6 +1030,27 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
   font-size: 14px;
   font-weight: 600;
   color: var(--color-text-primary);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.item-stock-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+}
+
+.item-stock-tag.sold-out {
+  background-color: var(--status-danger-bg);
+  color: var(--status-danger-text);
+}
+
+.item-stock-tag.low-stock {
+  background-color: var(--status-pending-bg);
+  color: var(--status-pending-text);
 }
 
 .item-note {
@@ -816,22 +1117,46 @@ async function handleFeedbackSubmitted({ orderUuid, rating, comments }) {
   position: relative;
 }
 
+.favorite-card.sold-out {
+  opacity: 0.78;
+}
+
+.fav-top-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-right: 44px;
+}
+
 .unheart-btn {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
   border: none;
   font-size: 20px;
   cursor: pointer;
   padding: 4px;
   border-radius: 50%;
-  transition: transform 0.15s ease;
+  transition: transform 180ms cubic-bezier(0.23, 1, 0.32, 1);
   line-height: 1;
+  touch-action: manipulation;
+  user-select: none;
 }
 
-.unheart-btn:hover {
-  transform: scale(1.2);
+.unheart-btn:active {
+  transform: scale(0.9);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .unheart-btn:hover {
+    transform: scale(1.15);
+  }
 }
 
 .empty-favorites-box {

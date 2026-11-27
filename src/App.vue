@@ -1,17 +1,32 @@
 <script setup>
+import { ref, onMounted } from 'vue'
 import AppNavbar from './components/common/AppNavbar.vue'
+import CartDrawer from './components/common/CartDrawer.vue'
 import { useCart } from './composables/useCart'
+import { useAuth } from './composables/useAuth'
 
-const { itemCount } = useCart()
+const { itemCount, fetchServerCart } = useCart()
+const { isAuthenticated, isCustomer, fetchUser } = useAuth()
+const isCartDrawerOpen = ref(false)
 
 function handleToggleCart() {
-  // Toggle cart drawer or navigate to checkout
+  isCartDrawerOpen.value = !isCartDrawerOpen.value
 }
+
+onMounted(async () => {
+  if (isAuthenticated.value) {
+    await fetchUser()
+  }
+  if (isAuthenticated.value && isCustomer.value) {
+    fetchServerCart()
+  }
+})
 </script>
 
 <template>
   <div class="app-layout">
     <AppNavbar :cart-count="itemCount" @toggle-cart="handleToggleCart" />
+    <CartDrawer :is-open="isCartDrawerOpen" @close="isCartDrawerOpen = false" />
 
     <main class="main-content">
       <router-view />
