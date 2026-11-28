@@ -1,6 +1,10 @@
 <script setup>
 import BaseBadge from '../common/BaseBadge.vue'
 
+function isImageUrl(value) {
+  return /^(https?:\/\/|\/|data:image\/)/i.test(value || '')
+}
+
 defineProps({
   categories: {
     type: Array,
@@ -88,7 +92,14 @@ defineEmits(['select-category', 'customize-item', 'quick-add', 'toggle-favorite'
           >
             {{ item.isFavorite ? '❤️' : '🤍' }}
           </button>
-          <span class="food-emoji" aria-hidden="true">{{ item.emoji || '🍽️' }}</span>
+          <img
+            v-if="isImageUrl(item.image_url)"
+            :src="item.image_url"
+            :alt="item.name"
+            class="food-photo"
+            loading="lazy"
+          />
+          <span v-else class="food-emoji" aria-hidden="true">{{ item.emoji || '🍽️' }}</span>
           <BaseBadge
             v-if="item.isSoldOut"
             variant="danger"
@@ -195,6 +206,14 @@ defineEmits(['select-category', 'customize-item', 'quick-add', 'toggle-favorite'
   display: flex;
   align-items: center;
   justify-content: center;
+  overflow: hidden;
+}
+
+.food-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 
 .food-emoji {

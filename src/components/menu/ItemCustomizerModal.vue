@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue'
 import BaseModal from '../common/BaseModal.vue'
 import BaseButton from '../common/BaseButton.vue'
 import BaseBadge from '../common/BaseBadge.vue'
+import { useCart, formatCurrency } from '../../composables/useCart'
 
 const props = defineProps({
   isOpen: {
@@ -17,6 +18,7 @@ const props = defineProps({
 
 const emit = defineEmits(['close', 'add-to-cart'])
 
+const { items: cartItems } = useCart()
 const quantity = ref(1)
 const customNotes = ref('')
 
@@ -37,14 +39,26 @@ watch(
   },
 )
 
+const alreadyInCart = computed(() => {
+  if (!props.item) return 0
+  return cartItems.value
+    .filter((i) => i.menu_item_id === props.item.id)
+    .reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)
+})
+
+const remainingAvailable = computed(() => {
+  if (!props.item || props.item.isSoldOut) return 0
+  return Math.max(0, Number(props.item.stock ?? 0) - alreadyInCart.value)
+})
+
 const maxQuantity = computed(() => {
   if (!props.item) return 10
-  return Math.min(props.item.stock || 10, 10)
+  return Math.min(remainingAvailable.value, 50)
 })
 
 const lineTotal = computed(() => {
   if (!props.item) return 0
-  return props.item.price * quantity.value
+  return (Math.round(Number(props.item.price || 0) * 100) * quantity.value) / 100
 })
 
 function increment() {
@@ -69,10 +83,10 @@ function handleAddChip(chip) {
 }
 
 function handleSubmit() {
-  if (!props.item || props.item.isSoldOut) return
+  if (!props.item || props.item.isSoldOut || remainingAvailable.value <= 0) return
   emit('add-to-cart', {
     item: props.item,
-    quantity: quantity.value,
+    quantity: Math.min(quantity.value, remainingAvailable.value),
     customNotes: customNotes.value.trim(),
   })
   emit('close')
@@ -101,10 +115,16 @@ function handleSubmit() {
           Sold Out
         </BaseBadge>
         <BaseBadge
+          v-else-if="remainingAvailable <= 0"
+          variant="warning"
+        >
+          Max in Cart ({{ item.stock }})
+        </BaseBadge>
+        <BaseBadge
           v-else
           variant="ready"
         >
-          {{ item.stock }} left
+          {{ remainingAvailable }} left
         </BaseBadge>
       </div>
 
@@ -177,10 +197,11 @@ function handleSubmit() {
       <BaseButton
         variant="primary"
         size="md"
-        :disabled="!item || item.isSoldOut"
+        :disabled="!item || item.isSoldOut || remainingAvailable <= 0"
         @click="handleSubmit"
       >
-        Add to Cart • <span class="tabular-nums">₱{{ lineTotal.toFixed(2) }}</span>
+        {{ remainingAvailable <= 0 && !item?.isSoldOut ? 'All Stock in Cart' : 'Add to Cart' }} •
+        <span class="tabular-nums">{{ formatCurrency(lineTotal) }}</span>
       </BaseButton>
     </template>
   </BaseModal>

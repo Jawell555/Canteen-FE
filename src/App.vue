@@ -15,10 +15,11 @@ function handleToggleCart() {
 
 onMounted(async () => {
   if (isAuthenticated.value) {
-    await fetchUser()
-  }
-  if (isAuthenticated.value && isCustomer.value) {
-    fetchServerCart()
+    const tasks = [fetchUser()]
+    if (isCustomer.value) {
+      tasks.push(fetchServerCart())
+    }
+    await Promise.all(tasks)
   }
 })
 </script>

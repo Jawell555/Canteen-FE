@@ -8,7 +8,7 @@ import { useAuth } from '../composables/useAuth'
 import { api } from '../services/api'
 
 const router = useRouter()
-const { addItem, itemCount, formattedSubtotal } = useCart()
+const { addItem, itemCount, formattedSubtotal, lastCartError, clearCartError } = useCart()
 const { user, isCustomer, isAuthenticated } = useAuth()
 const canFavorite = computed(() => isAuthenticated.value && isCustomer.value)
 const favoriteIds = ref(new Set())
@@ -221,6 +221,19 @@ function goToCheckout() {
       />
     </div>
 
+    <!-- Cart Warning Toast -->
+    <Transition name="fade">
+      <div
+        v-if="lastCartError"
+        class="cart-error-toast"
+        role="alert"
+        @click="clearCartError"
+      >
+        <span>⚠️ {{ lastCartError }}</span>
+        <button type="button" class="toast-dismiss" aria-label="Dismiss alert" @click.stop="clearCartError">&times;</button>
+      </div>
+    </Transition>
+
     <!-- Sticky Bottom Cart Summary Bar with ample clear space -->
     <Transition name="slide-up">
       <aside v-if="itemCount > 0" class="floating-cart-bar" aria-label="Order summary bar">
@@ -326,6 +339,49 @@ function goToCheckout() {
 .checkout-btn:hover {
   background-color: var(--color-primary-hover);
   transform: translateY(-1px);
+}
+
+/* Cart Error Toast */
+.cart-error-toast {
+  position: fixed;
+  bottom: 84px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background-color: #fef3c7;
+  color: #92400e;
+  border: 1px solid #f59e0b;
+  border-radius: var(--radius-full);
+  padding: 10px 18px;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: var(--shadow-elevated);
+  cursor: pointer;
+  max-width: 90vw;
+}
+
+.toast-dismiss {
+  background: transparent;
+  border: none;
+  color: #92400e;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 8px);
 }
 
 /* Transition */

@@ -2,7 +2,8 @@
 import { watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import BaseButton from './BaseButton.vue'
-import { useCart } from '../../composables/useCart'
+import BaseAlert from './BaseAlert.vue'
+import { useCart, formatCurrency } from '../../composables/useCart'
 
 const props = defineProps({
   isOpen: {
@@ -22,10 +23,28 @@ const {
   formattedSubtotal,
   isHoldActive,
   formattedHoldTime,
+  lastCartError,
+  clearCartError,
   updateQuantity,
   removeItem,
   clearCart,
 } = useCart()
+
+function getMenuQtyInCart(menuItemId) {
+  return items.value
+    .filter((i) => i.menu_item_id === menuItemId)
+    .reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)
+}
+
+function isAtStockLimit(item) {
+  if (item.current_stock === undefined || item.current_stock === null) return false
+  return getMenuQtyInCart(item.menu_item_id) >= Number(item.current_stock)
+}
+
+function getLineTotalFormatted(item) {
+  const cents = Math.round(Number(item.price || 0) * 100) * (Number(item.quantity) || 0)
+  return formatCurrency(cents / 100)
+}
 
 function handleClose() {
   emit('close')
@@ -137,6 +156,16 @@ onUnmounted(() => {
           </div>
 
           <div class="cart-drawer-body">
+            <BaseAlert
+              v-if="lastCartError"
+              variant="warning"
+              class="mb-3"
+              :dismissible="true"
+              @dismiss="clearCartError"
+            >
+              {{ lastCartError }}
+            </BaseAlert>
+
             <!-- Empty Cart State -->
             <div v-if="isEmpty" class="cart-empty-state">
               <span class="cart-empty-icon" aria-hidden="true">🛒</span>
@@ -200,6 +229,7 @@ onUnmounted(() => {
                     <button
                       type="button"
                       class="stepper-btn"
+                      :disabled="isAtStockLimit(item)"
                       aria-label="Increase quantity"
                       @click="updateQuantity(item.id, item.quantity + 1)"
                     >
@@ -208,7 +238,7 @@ onUnmounted(() => {
                   </div>
 
                   <span class="cart-item-subtotal tabular-nums">
-                    ₱{{ (Number(item.price || 0) * item.quantity).toFixed(2) }}
+                    {{ getLineTotalFormatted(item) }}
                   </span>
                 </div>
               </li>
@@ -530,13 +560,18 @@ onUnmounted(() => {
   user-select: none;
 }
 
-.stepper-btn:active {
+.stepper-btn:active:not(:disabled) {
   transform: scale(0.92);
   background-color: var(--color-border-default);
 }
 
+.stepper-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 @media (hover: hover) and (pointer: fine) {
-  .stepper-btn:hover {
+  .stepper-btn:hover:not(:disabled) {
     background-color: var(--color-border-subtle);
   }
 }

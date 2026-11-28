@@ -87,6 +87,8 @@ export function useStaffQueue() {
   const isLoading = ref(false)
   const isPolling = ref(true)
   let pollTimer = null
+  let isFetchingOrders = false
+  let activePollIntervalMs = 5000
 
   const pendingOrders = computed(() => orders.value.filter((o) => o.status === 'pending'))
   const preparingOrders = computed(() => orders.value.filter((o) => o.status === 'preparing'))
@@ -120,16 +122,20 @@ export function useStaffQueue() {
   }
 
   /**
-   * Fetch active queue from backend (or keep mock updated)
+   * Fetch active queue from backend with in-flight deduplication
    */
   async function fetchOrders() {
+    if (isFetchingOrders) return
+    isFetchingOrders = true
     try {
-      const response = await api.get('/staff/orders')
+      const response = await api.get('/staff/orders', { skipDedup: true })
       if (response.data?.orders) {
         orders.value = response.data.orders
       }
     } catch {
       // Gracefully continue with local state if backend is offline
+    } finally {
+      isFetchingOrders = false
     }
   }
 
@@ -220,8 +226,13 @@ export function useStaffQueue() {
 
   function startPolling(intervalMs = 5000) {
     stopPolling()
+    activePollIntervalMs = intervalMs
     isPolling.value = true
-    pollTimer = setInterval(fetchOrders, intervalMs)
+    pollTimer = setInterval(() => {
+      if (!document.hidden) {
+        fetchOrders()
+      }
+    }, intervalMs)
   }
 
   function stopPolling() {
@@ -232,13 +243,22 @@ export function useStaffQueue() {
     isPolling.value = false
   }
 
+  function handleVisibilityChange() {
+    if (!document.hidden && isPolling.value) {
+      fetchOrders()
+    }
+  }
+
   onMounted(() => {
+    fetchOrders()
     fetchMenuItems()
-    startPolling(5000)
+    startPolling(activePollIntervalMs)
+    document.addEventListener('visibilitychange', handleVisibilityChange)
   })
 
   onUnmounted(() => {
     stopPolling()
+    document.removeEventListener('visibilitychange', handleVisibilityChange)
   })
 
   return {

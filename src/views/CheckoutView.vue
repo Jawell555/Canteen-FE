@@ -3,7 +3,7 @@ import { ref, watch, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import BaseAlert from '../components/common/BaseAlert.vue'
 import BaseButton from '../components/common/BaseButton.vue'
-import { useCart } from '../composables/useCart'
+import { useCart, formatCurrency } from '../composables/useCart'
 import { useAuth } from '../composables/useAuth'
 import { api } from '../services/api'
 
@@ -13,6 +13,8 @@ const {
   items,
   isEmpty,
   formattedSubtotal,
+  lastCartError,
+  clearCartError,
   updateQuantity,
   removeItem,
   isHoldActive,
@@ -22,6 +24,22 @@ const {
   clearHold,
   getCheckoutItems,
 } = useCart()
+
+function getMenuQtyInCart(menuItemId) {
+  return items.value
+    .filter((i) => i.menu_item_id === menuItemId)
+    .reduce((sum, i) => sum + (Number(i.quantity) || 0), 0)
+}
+
+function isAtStockLimit(item) {
+  if (item.current_stock === undefined || item.current_stock === null) return false
+  return getMenuQtyInCart(item.menu_item_id) >= Number(item.current_stock)
+}
+
+function getLineTotalFormatted(item) {
+  const cents = Math.round(Number(item.price || 0) * 100) * (Number(item.quantity) || 0)
+  return formatCurrency(cents / 100)
+}
 
 const customerName = ref('')
 const customerPhone = ref('')
@@ -109,7 +127,7 @@ async function handlePlaceOrder() {
       // Ignore local storage quota errors
     }
 
-    clearCart()
+    await clearCart()
     clearHold()
 
     router.push(`/orders/${orderUuid}`)
@@ -144,13 +162,13 @@ async function handlePlaceOrder() {
         </BaseAlert>
 
         <BaseAlert
-          v-if="errorMessage"
+          v-if="errorMessage || lastCartError"
           variant="danger"
           class="mt-4 mb-4"
           :dismissible="true"
-          @dismiss="errorMessage = ''"
+          @dismiss="() => { errorMessage = ''; clearCartError(); }"
         >
-          {{ errorMessage }}
+          {{ errorMessage || lastCartError }}
         </BaseAlert>
 
         <form class="checkout-grid" @submit.prevent="handlePlaceOrder">
@@ -253,12 +271,13 @@ async function handlePlaceOrder() {
                     <button
                       type="button"
                       class="qty-btn"
+                      :disabled="isAtStockLimit(item)"
                       @click="updateQuantity(item.id, item.quantity + 1)"
                     >
                       +
                     </button>
                   </div>
-                  <span class="item-line-total tabular-nums">₱{{ (item.price * item.quantity).toFixed(2) }}</span>
+                  <span class="item-line-total tabular-nums">{{ getLineTotalFormatted(item) }}</span>
                   <button
                     type="button"
                     class="remove-btn"
@@ -510,6 +529,11 @@ async function handlePlaceOrder() {
   cursor: pointer;
   font-weight: bold;
   font-size: 14px;
+}
+
+.qty-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .qty-val {

@@ -129,7 +129,7 @@ async function toggleStaffStatus(staff) {
 </script>
 
 <template>
-  <div class="admin-dashboard">
+  <div class="admin-dashboard" :class="{ 'menu-top-compact': activeTab === 'menu' }">
     <!-- Read-Only Banner for Unauthenticated / Non-Admin Users -->
     <div v-if="!isAuthenticated || !isAdmin" class="admin-auth-guard" style="background: #fffbeb; border: 1.5px solid #fde68a; border-radius: 8px; padding: 14px 18px; margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
       <div style="display: flex; align-items: center; gap: 12px;">
@@ -144,8 +144,8 @@ async function toggleStaffStatus(staff) {
       </router-link>
     </div>
 
-    <!-- Top Header -->
-    <header class="admin-header">
+    <!-- Top Header (Hidden on Menu tab so menu workspace sits at top) -->
+    <header v-if="activeTab !== 'menu'" class="admin-header">
       <div>
         <h1 class="admin-title">Admin Management Portal</h1>
         <p class="admin-sub">Business performance, inventory control, and staff administration</p>
@@ -310,6 +310,10 @@ async function toggleStaffStatus(staff) {
   padding: var(--space-6);
   max-width: 1300px;
   margin: 0 auto;
+}
+
+.admin-dashboard.menu-top-compact {
+  padding-top: var(--space-4);
 }
 
 .admin-header {

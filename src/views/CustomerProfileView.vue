@@ -274,6 +274,7 @@ async function handleReorder(order) {
           id: info.menuId,
           name: item.name,
           price: info.price,
+          stock: info.stock,
         },
         qtyToAdd,
         item.custom_notes,
@@ -322,6 +323,7 @@ async function handleAddFavoriteToCart(fav) {
         name: fav.name,
         price: info.price,
         emoji: fav.emoji,
+        stock: info.stock,
       },
       1,
     )

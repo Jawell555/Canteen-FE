@@ -15,16 +15,18 @@ const { formattedHoldTime, isHoldActive } = useCart()
 const activeOrderId = ref(route.params.id || localStorage.getItem('canteena_last_order') || '')
 const isLoading = ref(false)
 let pollTimer = null
+let isFetchingOrder = false
 
 // Order state (connected to GET /orders/:id)
 const order = ref(null)
 
 async function fetchOrderDetails() {
   const currentId = activeOrderId.value
-  if (!currentId) return
+  if (!currentId || isFetchingOrder) return
 
+  isFetchingOrder = true
   try {
-    const res = await api.get(`/orders/${currentId}`)
+    const res = await api.get(`/orders/${currentId}`, { skipDedup: true })
     const d = res.data?.order || res.data
     if (d) {
       order.value = {
@@ -62,12 +64,18 @@ async function fetchOrderDetails() {
     }
   } catch (err) {
     console.error('Error fetching order details:', err)
+  } finally {
+    isFetchingOrder = false
   }
 }
 
 function startPolling() {
   stopPolling()
-  pollTimer = setInterval(fetchOrderDetails, 4000)
+  pollTimer = setInterval(() => {
+    if (!document.hidden) {
+      fetchOrderDetails()
+    }
+  }, 4000)
 }
 
 function stopPolling() {
@@ -77,10 +85,17 @@ function stopPolling() {
   }
 }
 
+function handleVisibilityChange() {
+  if (!document.hidden && order.value && !['completed', 'cancelled'].includes(order.value.status)) {
+    fetchOrderDetails()
+  }
+}
+
 onMounted(async () => {
   isLoading.value = true
   await fetchOrderDetails()
   isLoading.value = false
+  document.addEventListener('visibilitychange', handleVisibilityChange)
   if (order.value && !['completed', 'cancelled'].includes(order.value.status)) {
     startPolling()
   }
@@ -88,6 +103,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   stopPolling()
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
 })
 </script>
 
