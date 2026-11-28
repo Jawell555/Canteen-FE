@@ -5,6 +5,15 @@ import BaseButton from '../common/BaseButton.vue'
 import BaseBadge from '../common/BaseBadge.vue'
 import BaseModal from '../common/BaseModal.vue'
 
+const props = defineProps({
+  readOnly: {
+    type: Boolean,
+    default: false,
+  },
+})
+
+const emit = defineEmits(['sold-out-toggled'])
+
 const items = ref([
   {
     id: 101,
@@ -62,9 +71,18 @@ const formData = ref({
 
 async function fetchAdminMenu() {
   try {
-    const res = await api.get('/admin/menu')
+    const endpoint = props.readOnly ? '/menu/items' : '/admin/menu'
+    const res = await api.get(endpoint)
     if (res.data?.items && res.data.items.length > 0) {
-      items.value = res.data.items
+      items.value = res.data.items.map((item) => ({
+        ...item,
+        category: item.category_name || item.category || 'Meals',
+        desc: item.desc || item.description || '',
+        price: Number(item.price ?? 0),
+        current_stock: Number(item.current_stock ?? item.stock ?? 0),
+        daily_stock_limit: Number(item.daily_stock_limit ?? item.current_stock ?? item.stock ?? 0),
+        is_sold_out: Boolean(item.is_sold_out),
+      }))
     }
   } catch {
     // If unauthenticated or offline, keep default items
@@ -76,6 +94,7 @@ onMounted(() => {
 })
 
 function openCreateModal() {
+  if (props.readOnly) return
   isEditing.value = false
   editingId.value = null
   formData.value = {
@@ -89,6 +108,7 @@ function openCreateModal() {
 }
 
 function openEditModal(item) {
+  if (props.readOnly) return
   isEditing.value = true
   editingId.value = item.id
   formData.value = {
@@ -102,6 +122,7 @@ function openEditModal(item) {
 }
 
 async function handleSaveItem() {
+  if (props.readOnly) return
   if (!formData.value.name.trim()) return
 
   const payload = {
@@ -159,6 +180,7 @@ async function handleSaveItem() {
 }
 
 async function handleDeleteItem(itemId) {
+  if (props.readOnly) return
   if (confirm('Are you sure you want to deactivate this menu item?')) {
     items.value = items.value.filter((i) => i.id !== itemId)
     try {
@@ -171,6 +193,7 @@ async function handleDeleteItem(itemId) {
 
 async function toggleSoldOut(item) {
   item.is_sold_out = !item.is_sold_out
+  emit('sold-out-toggled', { id: item.id, is_sold_out: item.is_sold_out })
   try {
     await api.patch(`/staff/menu/${item.id}/toggle-sold-out`, {
       is_sold_out: item.is_sold_out,
@@ -186,10 +209,18 @@ async function toggleSoldOut(item) {
     <!-- Header with Action -->
     <header class="manager-header">
       <div>
-        <h2 class="section-title">Menu Items & Inventory Limits</h2>
-        <p class="section-sub">Configure canteen offerings, pricing, and daily replenishment quotas</p>
+        <h2 class="section-title">
+          {{ readOnly ? 'Canteen Menu & Availability' : 'Menu Items & Inventory Limits' }}
+        </h2>
+        <p class="section-sub">
+          {{
+            readOnly
+              ? 'View menu items, pricing, and stock levels, or click the status badge to toggle Sold Out'
+              : 'Configure canteen offerings, pricing, and daily replenishment quotas'
+          }}
+        </p>
       </div>
-      <BaseButton variant="primary" size="md" @click="openCreateModal">
+      <BaseButton v-if="!readOnly" variant="primary" size="md" @click="openCreateModal">
         + Add Menu Item
       </BaseButton>
     </header>
@@ -202,9 +233,9 @@ async function toggleSoldOut(item) {
             <th>Item Details</th>
             <th>Category</th>
             <th>Price</th>
-            <th>Daily Limit</th>
+            <th>{{ readOnly ? 'Current Stock' : 'Daily Limit' }}</th>
             <th>Stock Status</th>
-            <th class="text-right">Actions</th>
+            <th v-if="!readOnly" class="text-right">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -219,7 +250,7 @@ async function toggleSoldOut(item) {
               <span class="category-chip">{{ item.category }}</span>
             </td>
             <td class="tabular-nums font-bold">
-              ₱{{ item.price.toFixed(2) }}
+              ₱{{ Number(item.price || 0).toFixed(2) }}
             </td>
             <td class="tabular-nums">
               {{ item.current_stock }} / {{ item.daily_stock_limit }}
@@ -228,12 +259,13 @@ async function toggleSoldOut(item) {
               <BaseBadge
                 :variant="item.is_sold_out ? 'danger' : 'ready'"
                 class="cursor-pointer"
+                title="Click to toggle Sold Out status"
                 @click="toggleSoldOut(item)"
               >
                 {{ item.is_sold_out ? 'Sold Out' : 'Available' }}
               </BaseBadge>
             </td>
-            <td class="text-right actions-cell">
+            <td v-if="!readOnly" class="text-right actions-cell">
               <button
                 type="button"
                 class="table-action-btn edit-btn"
@@ -256,6 +288,7 @@ async function toggleSoldOut(item) {
 
     <!-- Create / Edit Menu Modal -->
     <BaseModal
+      v-if="!readOnly"
       :is-open="isModalOpen"
       :title="isEditing ? 'Edit Menu Item' : 'New Canteen Menu Item'"
       max-width="500px"

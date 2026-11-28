@@ -1,5 +1,6 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { api } from '../services/api'
 import { useAuth } from '../composables/useAuth'
 import AdminSalesReport from '../components/admin/AdminSalesReport.vue'
@@ -8,9 +9,12 @@ import BaseButton from '../components/common/BaseButton.vue'
 import BaseBadge from '../components/common/BaseBadge.vue'
 import BaseModal from '../components/common/BaseModal.vue'
 
+const route = useRoute()
 const { isAdmin, isAuthenticated } = useAuth()
 
-const activeTab = ref('reports')
+const activeTab = computed(() =>
+  ['menu', 'reports', 'staff', 'audit'].includes(route.query.tab) ? route.query.tab : 'reports',
+)
 
 // Mock Staff Accounts matching admin.contract.md
 const staffList = ref([
@@ -146,50 +150,6 @@ async function toggleStaffStatus(staff) {
         <h1 class="admin-title">Admin Management Portal</h1>
         <p class="admin-sub">Business performance, inventory control, and staff administration</p>
       </div>
-
-      <!-- Navigation Tabs -->
-      <nav class="admin-tabs" role="tablist" aria-label="Admin Sections">
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'reports'"
-          class="tab-btn"
-          :class="{ active: activeTab === 'reports' }"
-          @click="activeTab = 'reports'"
-        >
-          📊 Reports
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'menu'"
-          class="tab-btn"
-          :class="{ active: activeTab === 'menu' }"
-          @click="activeTab = 'menu'"
-        >
-          🍲 Menu
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'staff'"
-          class="tab-btn"
-          :class="{ active: activeTab === 'staff' }"
-          @click="activeTab = 'staff'"
-        >
-          👥 Staff
-        </button>
-        <button
-          type="button"
-          role="tab"
-          :aria-selected="activeTab === 'audit'"
-          class="tab-btn"
-          :class="{ active: activeTab === 'audit' }"
-          @click="activeTab = 'audit'"
-        >
-          📜 Audit Trail
-        </button>
-      </nav>
     </header>
 
     <!-- Tab 1: Sales Analytics & Reporting (T031) -->
@@ -372,33 +332,6 @@ async function toggleStaffStatus(staff) {
 .admin-sub {
   font-size: 13px;
   color: var(--color-text-secondary);
-}
-
-.admin-tabs {
-  display: inline-flex;
-  background-color: var(--color-bg-subtle);
-  padding: 4px;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border-default);
-  gap: 2px;
-}
-
-.tab-btn {
-  border: none;
-  background: transparent;
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  transition: all 0.15s ease;
-}
-
-.tab-btn.active {
-  background-color: var(--color-bg-surface);
-  color: var(--color-primary-base);
-  box-shadow: var(--shadow-subtle);
 }
 
 .section-top-bar {

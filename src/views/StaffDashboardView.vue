@@ -1,11 +1,15 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
+import { useRoute } from 'vue-router'
 import OrderQueueCard from '../components/staff/OrderQueueCard.vue'
 import PaymentProofModal from '../components/staff/PaymentProofModal.vue'
+import AdminMenuManager from '../components/admin/AdminMenuManager.vue'
 import { useStaffQueue } from '../composables/useStaffQueue'
 import { useAuth } from '../composables/useAuth'
 
+const route = useRoute()
 const { isStaff, isAdmin, isAuthenticated } = useAuth()
+const activeTab = computed(() => (route.query.tab === 'menu' ? 'menu' : 'queue'))
 
 const {
   menuItems,
@@ -54,6 +58,13 @@ function togglePolling() {
     startPolling(5000)
   }
 }
+
+function handleMenuSoldOutToggled({ id, is_sold_out }) {
+  const queueItem = menuItems.value.find((item) => item.id === id)
+  if (queueItem) {
+    queueItem.isSoldOut = is_sold_out
+  }
+}
 </script>
 
 <template>
@@ -69,7 +80,8 @@ function togglePolling() {
       </router-link>
     </div>
 
-    <!-- Operational Header (Touchscreen Friendly) -->
+    <template v-if="activeTab === 'queue'">
+      <!-- Operational Header (Touchscreen Friendly) -->
     <header class="staff-header">
       <div class="header-left">
         <h1 class="staff-title">Kitchen & Counter Queue</h1>
@@ -177,6 +189,11 @@ function togglePolling() {
       @verify="handleVerifyPayment"
       @reject="handleRejectPayment"
     />
+    </template>
+
+    <section v-else-if="activeTab === 'menu'">
+      <AdminMenuManager :read-only="true" @sold-out-toggled="handleMenuSoldOutToggled" />
+    </section>
   </div>
 </template>
 

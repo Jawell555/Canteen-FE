@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuth } from '../../composables/useAuth'
 import LoginModal from './LoginModal.vue'
 import RegisterModal from './RegisterModal.vue'
@@ -14,9 +14,12 @@ defineProps({
 
 defineEmits(['toggle-cart'])
 
+const route = useRoute()
 const router = useRouter()
-const currentRouteName = computed(() => router.currentRoute.value.name)
+const currentRouteName = computed(() => route.name)
+const currentTab = computed(() => route.query.tab)
 const { user, isAuthenticated, isAdmin, logout } = useAuth()
+const showCustomerNav = computed(() => user.value?.role !== 'staff' && !isAdmin.value)
 
 
 const isMobileDrawerOpen = ref(false)
@@ -125,33 +128,72 @@ watch(isMobileDrawerOpen, (isOpen) => {
 
       <!-- Desktop Nav Links (> 640px) -->
       <nav class="nav-links desktop-nav" aria-label="Main Navigation">
-        <router-link to="/" class="nav-link" :class="{ active: currentRouteName === 'menu' }">
-          Menu
-        </router-link>
-        <router-link
-          to="/orders"
-          class="nav-link"
-          :class="{ active: currentRouteName === 'orders' }"
-        >
-          Track Order
-        </router-link>
-        
-        <router-link
-          v-if="user?.role === 'staff'"
-          to="/staff"
-          class="nav-link staff-link"
-          :class="{ active: currentRouteName === 'staff' }"
-        >
-          Staff Queue
-        </router-link>
-        <router-link
-          v-if="isAdmin"
-          to="/admin"
-          class="nav-link staff-link"
-          :class="{ active: currentRouteName === 'admin' }"
-        >
-          Admin
-        </router-link>
+        <template v-if="showCustomerNav">
+          <router-link
+            to="/"
+            class="nav-link"
+            :class="{ active: currentRouteName === 'menu' }"
+          >
+            Menu
+          </router-link>
+          <router-link
+            to="/orders"
+            class="nav-link"
+            :class="{ active: currentRouteName === 'orders' }"
+          >
+            Track Order
+          </router-link>
+        </template>
+
+        <template v-else-if="user?.role === 'staff'">
+          <router-link
+            to="/staff"
+            class="nav-link"
+            :class="{ active: currentRouteName === 'staff' && currentTab !== 'menu' }"
+          >
+            Kitchen Queue
+          </router-link>
+          <router-link
+            :to="{ path: '/staff', query: { tab: 'menu' } }"
+            class="nav-link"
+            :class="{ active: currentRouteName === 'staff' && currentTab === 'menu' }"
+          >
+            Menu
+          </router-link>
+        </template>
+
+        <template v-else-if="isAdmin">
+          <router-link
+            :to="{ path: '/admin', query: { tab: 'menu' } }"
+            class="nav-link"
+            :class="{ active: currentRouteName === 'admin' && currentTab === 'menu' }"
+          >
+            Menu Management
+          </router-link>
+          <router-link
+            to="/admin"
+            class="nav-link"
+            :class="{
+              active: currentRouteName === 'admin' && (currentTab === 'reports' || !currentTab),
+            }"
+          >
+            Reports
+          </router-link>
+          <router-link
+            :to="{ path: '/admin', query: { tab: 'staff' } }"
+            class="nav-link"
+            :class="{ active: currentRouteName === 'admin' && currentTab === 'staff' }"
+          >
+            Staff
+          </router-link>
+          <router-link
+            :to="{ path: '/admin', query: { tab: 'audit' } }"
+            class="nav-link"
+            :class="{ active: currentRouteName === 'admin' && currentTab === 'audit' }"
+          >
+            Audit Trail
+          </router-link>
+        </template>
       </nav>
 
       <div class="navbar-actions">
@@ -234,6 +276,7 @@ watch(isMobileDrawerOpen, (isOpen) => {
 
 
         <button
+          v-if="showCustomerNav"
           type="button"
           class="cart-btn"
           aria-label="Open shopping cart"
@@ -300,8 +343,9 @@ watch(isMobileDrawerOpen, (isOpen) => {
               
               <nav class="drawer-nav" aria-label="Mobile Main Navigation">
 
-                <!-- Menu: Available to Everyone -->
+                <!-- Menu: Available to Guests and Customers -->
                 <router-link
+                  v-if="showCustomerNav"
                   to="/"
                   class="drawer-nav-item"
                   :class="{ active: currentRouteName === 'menu' }"
@@ -311,8 +355,9 @@ watch(isMobileDrawerOpen, (isOpen) => {
                   <span>Today's Menu</span>
                 </router-link>
 
-                <!-- Track Order: Available to Everyone -->
+                <!-- Track Order: Available to Guests and Customers -->
                 <router-link
+                  v-if="showCustomerNav"
                   to="/orders"
                   class="drawer-nav-item"
                   :class="{ active: currentRouteName === 'orders' }"
@@ -354,24 +399,67 @@ watch(isMobileDrawerOpen, (isOpen) => {
                 <div class="drawer-divider"></div>
                 <span class="drawer-section-label">Canteen Operations</span>
                 <nav class="drawer-nav" aria-label="Mobile Staff Navigation">
-                  <router-link
-                    v-if="user?.role === 'staff'"
-                    to="/staff"
-                    class="drawer-nav-item staff-item"
-                    :class="{ active: currentRouteName === 'staff' }"
-                  >
-                    <span class="nav-icon" aria-hidden="true">👨‍🍳</span>
-                    <span>Staff Kitchen Queue</span>
-                  </router-link>
-                  <router-link
-                    v-if="isAdmin"
-                    to="/admin"
-                    class="drawer-nav-item staff-item"
-                    :class="{ active: currentRouteName === 'admin' }"
-                  >
-                    <span class="nav-icon" aria-hidden="true">⚙️</span>
-                    <span>Admin Portal</span>
-                  </router-link>
+                  <template v-if="user?.role === 'staff'">
+                    <router-link
+                      to="/staff"
+                      class="drawer-nav-item staff-item"
+                      :class="{ active: currentRouteName === 'staff' && currentTab !== 'menu' }"
+                      @click="closeMobileDrawer"
+                    >
+                      <span class="nav-icon" aria-hidden="true">👨‍🍳</span>
+                      <span>Kitchen Queue</span>
+                    </router-link>
+                    <router-link
+                      :to="{ path: '/staff', query: { tab: 'menu' } }"
+                      class="drawer-nav-item staff-item"
+                      :class="{ active: currentRouteName === 'staff' && currentTab === 'menu' }"
+                      @click="closeMobileDrawer"
+                    >
+                      <span class="nav-icon" aria-hidden="true">🍲</span>
+                      <span>Menu</span>
+                    </router-link>
+                  </template>
+                  <template v-else-if="isAdmin">
+                    <router-link
+                      :to="{ path: '/admin', query: { tab: 'menu' } }"
+                      class="drawer-nav-item staff-item"
+                      :class="{ active: currentRouteName === 'admin' && currentTab === 'menu' }"
+                      @click="closeMobileDrawer"
+                    >
+                      <span class="nav-icon" aria-hidden="true">🍲</span>
+                      <span>Menu Management</span>
+                    </router-link>
+                    <router-link
+                      to="/admin"
+                      class="drawer-nav-item staff-item"
+                      :class="{
+                        active:
+                          currentRouteName === 'admin' && (currentTab === 'reports' || !currentTab),
+                      }"
+                      @click="closeMobileDrawer"
+                    >
+                      <span class="nav-icon" aria-hidden="true">📊</span>
+                      <span>Reports</span>
+                    </router-link>
+                    <router-link
+                      :to="{ path: '/admin', query: { tab: 'staff' } }"
+                      class="drawer-nav-item staff-item"
+                      :class="{ active: currentRouteName === 'admin' && currentTab === 'staff' }"
+                      @click="closeMobileDrawer"
+                    >
+                      <span class="nav-icon" aria-hidden="true">👥</span>
+                      <span>Staff</span>
+                    </router-link>
+                    <router-link
+                      :to="{ path: '/admin', query: { tab: 'audit' } }"
+                      class="drawer-nav-item staff-item"
+                      :class="{ active: currentRouteName === 'admin' && currentTab === 'audit' }"
+                      @click="closeMobileDrawer"
+                    >
+                      <span class="nav-icon" aria-hidden="true">📜</span>
+                      <span>Audit Trail</span>
+                    </router-link>
+                  </template>
                 </nav>
               </template>
             </div>
